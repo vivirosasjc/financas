@@ -31,7 +31,7 @@
   .iconbtn{border:0;background:var(--card);width:40px;height:40px;border-radius:50%;font-size:1.2rem;cursor:pointer;box-shadow:0 0 0 1px var(--line)}
   main{padding:12px 16px calc(96px + var(--safe-b));max-width:720px;margin:0 auto}
   nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:var(--safe-b)}
-  nav.tabs button{flex:1;border:0;background:none;padding:10px 0 8px;font-size:.75rem;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+  nav.tabs button{flex:1;border:0;background:none;padding:10px 0 8px;font-size:.7rem;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
   nav.tabs button span{font-size:1.25rem;line-height:1}
   nav.tabs button.on{color:var(--brand);font-weight:600}
   .fab{position:fixed;right:18px;bottom:calc(76px + var(--safe-b));z-index:7;width:56px;height:56px;border-radius:50%;border:0;background:var(--brand);color:#fff;font-size:1.8rem;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer}
@@ -85,7 +85,7 @@
   .listedit span{flex:1}
   .listedit button{border:0;background:none;color:var(--danger);font-size:1.1rem;cursor:pointer}
   .addline{display:flex;gap:8px;margin-top:8px}
-  .addline input{flex:1;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+  .addline input{flex:1;min-width:0;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
   .addline button{border:0;background:var(--brand);color:#fff;border-radius:10px;padding:0 16px;font-weight:650}
   .obs{font-size:.8rem;color:var(--muted);font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .authwrap{position:fixed;inset:0;z-index:40;background:var(--bg);overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:calc(env(safe-area-inset-top,0px) + 40px) 20px 40px}
@@ -97,6 +97,17 @@
   .or{margin:14px 0;color:var(--muted);font-size:.85rem}
   .link{border:0;background:none;color:var(--brand);margin-top:16px;font-weight:600;cursor:pointer}
   .err{color:var(--danger);font-size:.9rem}
+  .payrow{display:grid;grid-template-columns:1.3fr .6fr 1fr auto;gap:6px;margin-bottom:6px}
+  .payrow select,.payrow input{padding:9px 8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);min-width:0}
+  .payrow button{border:0;background:none;color:var(--danger);font-size:1.1rem;cursor:pointer}
+  .neg{color:var(--danger)!important} .pos{color:var(--ok)}
+  .warn{background:#fdecea;color:var(--danger);border-radius:10px;padding:10px 12px;font-size:.88rem;font-weight:600;margin-top:10px}
+  @media (prefers-color-scheme:dark){ .warn{background:#3a1d1b} }
+  .payhead{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}
+  .payhead .amt{border:0;background:var(--brand-soft);color:var(--brand);font-weight:700;border-radius:10px;padding:6px 10px;cursor:pointer;font-size:.95rem}
+  .sumline{display:flex;justify-content:space-between;font-size:.88rem;padding:3px 0}
+  .sumline.total{font-weight:700;font-size:1rem;border-top:1px solid var(--line);margin-top:6px;padding-top:8px}
+  .chip.card{background:var(--p2-soft);color:var(--p2)}
   .toast{position:fixed;left:50%;bottom:calc(150px + var(--safe-b));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:20px;font-size:.9rem;z-index:30}
 </style>
 </head>
@@ -113,6 +124,7 @@
 <div id="auth" class="authwrap"></div>
 <nav class="tabs">
   <button data-tab="resumo" class="on"><span>📊</span>Resumo</button>
+  <button data-tab="salarios"><span>💰</span>Salários</button>
   <button data-tab="contas"><span>🧾</span>Contas</button>
   <button data-tab="cartao"><span>💳</span>Cartão</button>
   <button data-tab="config"><span>⚙️</span>Ajustes</button>
@@ -151,14 +163,22 @@ const DEFAULT = {
   fixed: [],    // {id, desc, cat, value, day, payer, start, end, paid:{'YYYY-MM':'data/hora'}, obs}
   variable: [], // {id, date, desc, cat, value, payer, paid, obs}
   purchases: [],// {id, date, card, desc, cat, owner, n, inst, first, obs}
-  cardPaid: {}  // {'YYYY-MM|cartão|p1': 'data/hora'}
+  cardPaid: {}, // {'YYYY-MM|cartão|p1': 'data/hora'}
+  // Recebimentos: rule 'day' = dia fixo do mês; 'bday' = Nº dia útil (seg–sex, sem feriados nacionais)
+  income: {
+    p1: { track: true,  pays: [ {id:'d15', rule:'day', n:15, amount:0}, {id:'d30', rule:'day', n:30, amount:0} ] },
+    p2: { track: false, pays: [ {id:'bd5', rule:'bday', n:5, amount:0} ] }
+  },
+  cardInfo: {},   // {'Nubank': {due:10, pay:{p1:{pd,off}, p2:{pd,off}}}}
+  incomeMonth: {} // {'YYYY-MM|p1|d15': valor recebido naquele mês}
 };
 let db = structuredClone(DEFAULT);
 const clean = o => JSON.parse(JSON.stringify(o));
 const cpId = k => encodeURIComponent(k).replace(/\./g,'%2E');
 function putItem(col,o){ setDoc(doc(casa,col,o.id), clean(o)).catch(writeErr); }
 function delItem(col,id){ deleteDoc(doc(casa,col,id)).catch(writeErr); }
-function putConfig(){ setDoc(casa, clean({people:db.people,categories:db.categories,cards:db.cards}), {merge:true}).catch(writeErr); }
+function putConfig(){ setDoc(casa, clean({people:db.people,categories:db.categories,cards:db.cards,income:db.income,cardInfo:db.cardInfo}), {merge:true}).catch(writeErr); }
+function setIncome(k,v){ const r=doc(casa,'income',cpId(k)); (v!=null?setDoc(r,{k,v}):deleteDoc(r)).catch(writeErr); }
 function setCardPaid(k,at){ const r=doc(casa,'cardPaid',cpId(k)); (at?setDoc(r,{k,at}):deleteDoc(r)).catch(writeErr); }
 function writeErr(e){ console.error(e); toast(e.code==='permission-denied'?'Sem permissão para salvar':'Erro ao salvar: '+(e.code||e.message)); }
 async function bulk(ops){ // ops: [ [ref, data|null], ... ]
@@ -166,36 +186,45 @@ async function bulk(ops){ // ops: [ [ref, data|null], ... ]
 }
 async function importAll(d, replace){
   const ops=[];
-  if(replace){ COLS.forEach(c=>db[c].forEach(o=>ops.push([doc(casa,c,o.id),null]))); Object.keys(db.cardPaid).forEach(k=>ops.push([doc(casa,'cardPaid',cpId(k)),null])); }
+  if(replace){ COLS.forEach(c=>db[c].forEach(o=>ops.push([doc(casa,c,o.id),null]))); Object.keys(db.cardPaid).forEach(k=>ops.push([doc(casa,'cardPaid',cpId(k)),null]));
+    Object.keys(db.incomeMonth).forEach(k=>ops.push([doc(casa,'income',cpId(k)),null])); }
+  Object.entries(d.incomeMonth||{}).forEach(([k,v])=>{ if(v!=null) ops.push([doc(casa,'income',cpId(k)),{k,v}]); });
   COLS.forEach(c=>(d[c]||[]).forEach(o=>{ if(o&&o.id) ops.push([doc(casa,c,o.id),clean(o)]); }));
   Object.entries(d.cardPaid||{}).forEach(([k,at])=>{ if(at) ops.push([doc(casa,'cardPaid',cpId(k)),{k,at}]); });
   const cfg={ people:d.people||db.people,
     categories:replace?(d.categories||db.categories):[...new Set([...db.categories,...(d.categories||[])])],
-    cards:replace?(d.cards||db.cards):[...new Set([...db.cards,...(d.cards||[])])] };
+    cards:replace?(d.cards||db.cards):[...new Set([...db.cards,...(d.cards||[])])],
+    income:d.income||db.income, cardInfo:{...db.cardInfo,...(d.cardInfo||{})} };
   ops.push([casa,clean(cfg)]);
   await bulk(ops);
 }
 async function wipeAll(){
   const ops=[]; COLS.forEach(c=>db[c].forEach(o=>ops.push([doc(casa,c,o.id),null])));
   Object.keys(db.cardPaid).forEach(k=>ops.push([doc(casa,'cardPaid',cpId(k)),null]));
-  ops.push([casa,clean({people:DEFAULT.people,categories:DEFAULT.categories,cards:DEFAULT.cards})]);
+  Object.keys(db.incomeMonth).forEach(k=>ops.push([doc(casa,'income',cpId(k)),null]));
+  ops.push([casa,clean({people:DEFAULT.people,categories:DEFAULT.categories,cards:DEFAULT.cards,income:DEFAULT.income,cardInfo:{}})]);
   await bulk(ops);
 }
 
 /* ---------- Sincronização ---------- */
 let unsubs=[], rTimer=null, gotConfig=false;
-const scheduleRender=()=>{ clearTimeout(rTimer); rTimer=setTimeout(()=>{ if(gotConfig){ hideAuth(); render(); } },30); };
+// Não redesenha a tela enquanto a pessoa está digitando num campo; redesenha quando ela sai do campo.
+let renderPending=false;
+const typing=()=>{ const a=document.activeElement; return a && view && view.contains(a) && (a.tagName==='INPUT'||a.tagName==='SELECT'); };
+const scheduleRender=()=>{ clearTimeout(rTimer); rTimer=setTimeout(()=>{ if(!gotConfig) return; hideAuth(); if(typing()){ renderPending=true; return; } render(); },30); };
+document.addEventListener('focusout',()=>setTimeout(()=>{ if(renderPending && !typing()){ renderPending=false; render(); } },60));
 function stopSync(){ unsubs.forEach(u=>u()); unsubs=[]; gotConfig=false; db=structuredClone(DEFAULT); }
 function syncErr(e){ console.error(e); if(e.code==='permission-denied') showAuth('denied'); else toast('Erro de sincronização: '+(e.code||e.message)); }
 function startSync(){
   stopSync();
   unsubs.push(onSnapshot(casa, s=>{
     const d=s.data();
-    if(d){ ['people','categories','cards'].forEach(k=>{ if(d[k]) db[k]=d[k]; }); }
+    if(d){ ['people','categories','cards','income','cardInfo'].forEach(k=>{ if(d[k]) db[k]=d[k]; }); }
     else if(!s.metadata.fromCache){ putConfig(); }
     gotConfig=true; scheduleRender();
   }, syncErr));
   COLS.forEach(c=>unsubs.push(onSnapshot(collection(casa,c), s=>{ db[c]=s.docs.map(d=>({...d.data(), id:d.id})); scheduleRender(); }, syncErr)));
+  unsubs.push(onSnapshot(collection(casa,'income'), s=>{ db.incomeMonth=Object.fromEntries(s.docs.map(d=>[d.data().k,d.data().v])); scheduleRender(); }, syncErr));
   unsubs.push(onSnapshot(collection(casa,'cardPaid'), s=>{ db.cardPaid=Object.fromEntries(s.docs.map(d=>[d.data().k,d.data().at])); scheduleRender(); }, syncErr));
 }
 
@@ -289,6 +318,86 @@ function summary(k){
   return s;
 }
 
+/* ---------- Salários e vencimentos ---------- */
+const pad2 = n => String(n).padStart(2,'0');
+const lastDay = k => { const [y,m]=k.split('-').map(Number); return new Date(y,m,0).getDate(); };
+const dshort = s => s ? s.slice(8,10)+'/'+s.slice(5,7) : '';
+const holidayCache = {};
+function holidays(y){ // feriados nacionais (MM-DD), com Sexta-feira Santa
+  if(holidayCache[y]) return holidayCache[y];
+  const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),
+    h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),
+    mo=Math.floor((h+l-7*m+114)/31),da=((h+l-7*m+114)%31)+1;
+  const gf=new Date(y,mo-1,da-2);
+  return holidayCache[y]=new Set(['01-01','04-21','05-01','09-07','10-12','11-02','11-15','11-20','12-25', pad2(gf.getMonth()+1)+'-'+pad2(gf.getDate())]);
+}
+function payDate(pay, k){ // data do recebimento no mês k
+  const [y,m]=k.split('-').map(Number);
+  if(pay.rule==='bday'){
+    let count=0;
+    for(let d=1; d<=lastDay(k); d++){ const dt=new Date(y,m-1,d), wd=dt.getDay();
+      if(wd===0||wd===6||holidays(y).has(pad2(m)+'-'+pad2(d))) continue;
+      if(++count===(pay.n||5)) return k+'-'+pad2(d); }
+    return k+'-'+pad2(lastDay(k));
+  }
+  return k+'-'+pad2(Math.min(pay.n||1,lastDay(k)));
+}
+const payLabel = pay => pay.rule==='bday' ? `${pay.n}º dia útil` : `Dia ${pay.n}`;
+const paysOf = who => ((db.income&&db.income[who]&&db.income[who].pays)||[]).filter(x=>x&&x.n);
+const tracks = who => !!(db.income&&db.income[who]&&db.income[who].track);
+const incKey = (k,who,id) => k+'|'+who+'|'+id;
+const payAmount = (k,who,pay) => { const v=db.incomeMonth[incKey(k,who,pay.id)]; return v!=null ? v : (pay.amount||0); };
+const cardDue = c => (db.cardInfo&&db.cardInfo[c]&&db.cardInfo[c].due) || 10;
+const dueFixed = (f,k) => k+'-'+pad2(Math.min(f.day||1,lastDay(k)));
+const dueVar = v => v.due || v.date;
+const dueCard = (c,k) => k+'-'+pad2(Math.min(cardDue(c),lastDay(k)));
+function autoPay(who, due){ // último salário recebido até o vencimento
+  const D=due.slice(0,7); let best=null;
+  [-1,0].forEach(off=>paysOf(who).forEach(pay=>{ const dt=payDate(pay,madd(D,off)); if(dt<=due && (!best||dt>best.date)) best={pd:pay.id,off,date:dt}; }));
+  if(!best){ const p0=paysOf(who)[0]; if(p0) best={pd:p0.id,off:-1,date:payDate(p0,madd(D,-1))}; }
+  return best;
+}
+function resolvePay(who, pw, due){
+  const D=due.slice(0,7), pays=paysOf(who);
+  const pay = pw && pays.find(x=>x.id===pw.pd);
+  const r = pay ? {pd:pay.id, off:pw.off, date:payDate(pay,madd(D,pw.off))} : autoPay(who,due);
+  if(!r) return null;
+  return {...r, payMonth:madd(D,r.off)};
+}
+function payOptionsHTML(who, due, cur, fixed){
+  const pays=paysOf(who); if(!pays.length) return `<option value="">Cadastre os salários de ${esc(pname(who))} em Ajustes</option>`;
+  const D=due.slice(0,7), sel=cur?cur.pd+'|'+cur.off:'';
+  return [-1,0].flatMap(off=>pays.map(pay=>{ const dt=payDate(pay,madd(D,off)), v=pay.id+'|'+off;
+    const txt = fixed ? `${payLabel(pay)} do ${off?'mês anterior ao vencimento':'mesmo mês do vencimento'} (ex.: ${dshort(dt)})` : `${payLabel(pay)} – ${dshort(dt)}`;
+    return {dt,html:`<option value="${v}" ${v===sel?'selected':''}>${esc(txt)}${dt>due?' ⚠ depois do vencimento':''}</option>`}; }))
+    .sort((a,b)=>a.dt.localeCompare(b.dt)).map(x=>x.html).join('');
+}
+// Tudo o que cai nos salários recebidos no mês M
+function obligations(M){
+  const out=[];
+  [M, madd(M,1)].forEach(D=>{
+    fixedIn(D).forEach(f=>{ const due=dueFixed(f,D), r=resolvePay(f.payer,f.payWith,due);
+      if(r&&r.payMonth===M) out.push({kind:'fix',who:f.payer,o:f,D,due,value:f.value,paid:f.paid&&f.paid[D],pd:r.pd,date:r.date,desc:f.desc}); });
+    db.variable.forEach(v=>{ const due=dueVar(v); if(!due||due.slice(0,7)!==D) return; const r=resolvePay(v.payer,v.payWith,due);
+      if(r&&r.payMonth===M) out.push({kind:'var',who:v.payer,o:v,D,due,value:v.value,paid:v.paid,pd:r.pd,date:r.date,desc:v.desc}); });
+    const fat={}; purchasesIn(D).forEach(p=>{ const k=p.card+'|'+p.owner; (fat[k]=fat[k]||{card:p.card,who:p.owner,value:0,n:0}); fat[k].value+=p.inst; fat[k].n++; });
+    Object.values(fat).forEach(x=>{ const due=dueCard(x.card,D), ci=db.cardInfo[x.card]||{}, r=resolvePay(x.who,ci.pay&&ci.pay[x.who],due);
+      if(r&&r.payMonth===M) out.push({kind:'card',who:x.who,card:x.card,D,due,value:Math.round(x.value*100)/100,n:x.n,paid:db.cardPaid[cpKey(D,x.card,x.who)],pd:r.pd,date:r.date,desc:'Fatura '+x.card}); });
+  });
+  return out;
+}
+// Visão por salário de uma pessoa no mês M
+function payPlan(M, who){
+  const obs=obligations(M).filter(x=>x.who===who);
+  const groups=paysOf(who).map(pay=>({pay,date:payDate(pay,M),amount:payAmount(M,who,pay),items:[]})).sort((a,b)=>a.date.localeCompare(b.date));
+  obs.forEach(x=>{ const g=groups.find(g=>g.pay.id===x.pd); if(g) g.items.push(x); });
+  let carry=0; const track=tracks(who);
+  groups.forEach(g=>{ g.items.sort((a,b)=>a.due.localeCompare(b.due)); g.total=g.items.reduce((a,x)=>a+x.value,0);
+    g.open=g.items.filter(x=>!x.paid).reduce((a,x)=>a+x.value,0); g.carry=carry; g.saldo=carry+(track?g.amount:0)-g.total; carry=g.saldo; });
+  const income=track?groups.reduce((a,g)=>a+g.amount,0):0, spent=groups.reduce((a,g)=>a+g.total,0);
+  return {groups, income, spent, result:income-spent, track, neg:groups.some(g=>track&&g.saldo<0)};
+}
+
 /* ---------- Estado da tela ---------- */
 let month = mkey(new Date());
 let tab = 'resumo';
@@ -301,7 +410,7 @@ function render(){
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
   document.getElementById('fab').style.display = (tab==='contas'||tab==='cartao') ? '' : 'none';
   document.querySelector('header').style.display = tab==='config' ? 'none' : '';
-  ({resumo:renderResumo, contas:renderContas, cartao:renderCartao, config:renderConfig})[tab]();
+  ({resumo:renderResumo, salarios:renderSalarios, contas:renderContas, cartao:renderCartao, config:renderConfig})[tab]();
 }
 
 function personBox(id,s){
@@ -319,8 +428,13 @@ function renderResumo(){
   const cats=Object.entries(s.cats).map(([c,v])=>[c,v,v.p1+v.p2]).filter(x=>x[2]>0).sort((a,b)=>b[2]-a[2]);
   const max=cats.length?cats[0][2]:1;
   const cards=Object.entries(s.cards);
-  view.innerHTML = `
-    <div class="card"><div class="muted">Total do mês</div><div class="big">${brl(tot)}</div>
+  const plans=['p1','p2'].filter(w=>tracks(w)&&paysOf(w).length).map(w=>[w,payPlan(month,w)]);
+  view.innerHTML = plans.map(([w,pl])=>`<div class="card" data-goto="salarios" style="cursor:pointer">
+      <div class="row"><span class="muted">Saldo de ${esc(pname(w))} no mês</span><span class="muted">ver por salário ›</span></div>
+      <div class="big ${pl.result<0?'neg':''}">${brl(pl.result)}</div>
+      <div class="row muted"><span>Entradas ${brl(pl.income)}</span><span>Contas ${brl(pl.spent)}</span></div>
+      ${pl.neg?`<div class="warn">⚠ Vai ficar negativo em algum salário deste mês.</div>`:''}</div>`).join('') + `
+    <div class="card"><div class="muted">Total gasto no mês</div><div class="big">${brl(tot)}</div>
       ${tot?`<div class="bar"><i style="width:${t1/tot*100}%;background:var(--p1)"></i><i style="width:${t2/tot*100}%;background:var(--p2)"></i></div>`:''}
     </div>
     <div class="grid2" style="margin-bottom:12px">${personBox('p1',s.p1)}${personBox('p2',s.p2)}</div>
@@ -330,6 +444,47 @@ function renderResumo(){
         <div class="bar" style="width:${Math.max(t/max*100,4)}%"><i style="width:${v.p1/t*100}%;background:var(--p1)"></i><i style="width:${v.p2/t*100}%;background:var(--p2)"></i></div></div>`).join('')
       :'<div class="empty">Nenhum gasto neste mês ainda.<br>Use as abas Contas e Cartão para lançar.</div>'}
     </div>`;
+}
+
+function itemRowHTML(x){
+  const pm=x.D, chip=x.kind==='fix'?'<span class="chip fix">Fixa</span>':x.kind==='var'?'<span class="chip var">Variável</span>':'<span class="chip card">Cartão</span>';
+  const check = x.kind==='card'
+    ? `<button class="check ${x.paid?'on':''}" data-cpay="${esc(x.card)}|${x.who}" data-pm="${pm}" aria-label="Marcar como pago">${x.paid?'✓':''}</button>`
+    : `<button class="check ${x.paid?'on':''}" data-pay="${x.kind}:${x.o.id}" data-pm="${pm}" aria-label="Marcar como pago">${x.paid?'✓':''}</button>`;
+  return `<div class="item" ${x.kind==='card'?'':`data-edit="${x.kind}:${x.o.id}" data-pm="${pm}"`}>
+    ${check}
+    <div class="main"><div class="title">${esc(x.desc)}</div>
+      <div class="sub">${chip}vence ${dshort(x.due)}${x.kind==='card'?` · ${x.n} parcela${x.n>1?'s':''}`:''}</div>${paidLine(x.paid)}</div>
+    <div class="val">${brl(x.value)}</div></div>`;
+}
+function renderSalarios(){
+  const people=['p1','p2'].filter(w=>paysOf(w).length);
+  if(!people.length){ view.innerHTML='<div class="card"><div class="empty">Cadastre os salários em <b>Ajustes → Salários</b>.</div></div>'; return; }
+  view.innerHTML = people.map(w=>{
+    const pl=payPlan(month,w);
+    const head = pl.track
+      ? `<div class="card"><h2>${esc(pname(w))} · ${esc(mlabel(month))}</h2>
+          <div class="sumline"><span>Entradas</span><b class="pos">${brl(pl.income)}</b></div>
+          <div class="sumline"><span>Contas que caem nesses salários</span><b>${brl(pl.spent)}</b></div>
+          <div class="sumline total"><span>Resultado do mês</span><span class="${pl.result<0?'neg':'pos'}">${brl(pl.result)}</span></div>
+          ${pl.neg?`<div class="warn">⚠ Vai ficar negativo${pl.groups.filter(g=>g.saldo<0).map(g=>` no salário de ${dshort(g.date)} (${brl(g.saldo)})`).join(' e')}.</div>`:''}
+          ${pl.income===0?'<p class="muted" style="margin:8px 0 0">Informe o valor dos salários em Ajustes → Salários, ou toque no valor de cada salário abaixo.</p>':''}</div>`
+      : `<div class="card"><h2>${esc(pname(w))} · ${esc(mlabel(month))}</h2>
+          <div class="sumline"><span>Contas que caem para ${esc(pname(w))}</span><b>${brl(pl.spent)}</b></div>
+          <p class="muted" style="margin:6px 0 0">O salário de ${esc(pname(w))} não está sendo acompanhado. Ative em Ajustes → Salários para ver o saldo.</p></div>`;
+    return head + pl.groups.map(g=>`<div class="card">
+      <div class="payhead"><div><b>Salário ${esc(payLabel(g.pay).toLowerCase())}</b><div class="muted">recebe em ${dshort(g.date)}</div></div>
+        ${pl.track?`<button class="amt" data-income="${w}|${g.pay.id}" aria-label="Alterar valor">${brl(g.amount)} ✎</button>`:''}</div>
+      ${g.items.length?g.items.map(itemRowHTML).join(''):'<div class="empty" style="padding:14px">Nenhuma conta neste salário.</div>'}
+      <div style="margin-top:8px">
+        ${pl.track&&g.carry?`<div class="sumline"><span>Sobra do salário anterior</span><span class="${g.carry<0?'neg':''}">${brl(g.carry)}</span></div>`:''}
+        ${pl.track?`<div class="sumline"><span>Salário</span><span>${brl(g.amount)}</span></div>`:''}
+        <div class="sumline"><span>Contas</span><span>− ${brl(g.total)}</span></div>
+        <div class="sumline muted"><span>Falta pagar</span><span>${brl(g.open)}</span></div>
+        ${pl.track?`<div class="sumline total"><span>Saldo</span><span class="${g.saldo<0?'neg':'pos'}">${brl(g.saldo)}</span></div>`:''}
+        ${pl.track&&g.saldo<0?`<div class="warn">⚠ Faltam ${brl(-g.saldo)} neste salário.</div>`:''}
+      </div></div>`).join('');
+  }).join('') + `<p class="muted" style="text-align:center;font-size:.8rem">Aparecem aqui as contas pagas com os salários recebidos em ${esc(mlabel(month).toLowerCase())}, mesmo que vençam no começo do mês seguinte.</p>`;
 }
 
 function faturaHTML(c,v){
@@ -344,8 +499,8 @@ function segHTML(opts,cur,attr){ return `<div class="seg">${opts.map(([v,l])=>`<
 
 function renderContas(){
   let items=[
-    ...fixedIn(month).map(f=>({kind:'fix',o:f,paid:f.paid&&f.paid[month],sort:f.day||0})),
-    ...variableIn(month).map(v=>({kind:'var',o:v,paid:v.paid,sort:+v.date.slice(8,10)}))
+    ...fixedIn(month).map(f=>({kind:'fix',o:f,paid:f.paid&&f.paid[month],sort:f.day||0,due:dueFixed(f,month)})),
+    ...variableIn(month).map(v=>({kind:'var',o:v,paid:v.paid,sort:+v.date.slice(8,10),due:dueVar(v)}))
   ];
   if(fContas.type!=='all') items=items.filter(i=>i.kind===fContas.type);
   if(fContas.who!=='all') items=items.filter(i=>i.o.payer===fContas.who);
@@ -358,8 +513,8 @@ function renderContas(){
       <div class="item" data-edit="${i.kind}:${o.id}">
         <button class="check ${i.paid?'on':''}" data-pay="${i.kind}:${o.id}" aria-label="Marcar como pago">${i.paid?'✓':''}</button>
         <div class="main"><div class="title">${esc(o.desc)}</div>
-          <div class="sub"><span class="chip ${i.kind}">${i.kind==='fix'?'Fixa':'Variável'}</span><span class="chip ${o.payer}">${esc(pname(o.payer))}</span>${esc(o.cat)}</div>${paidLine(i.paid)}${o.obs?`<div class="obs">${esc(o.obs)}</div>`:''}</div>
-        <div class="val">${brl(o.value)}<small>${i.kind==='fix'?(o.day?'vence dia '+o.day:''):dlabel(o.date).slice(0,5)}</small></div>
+          <div class="sub"><span class="chip ${i.kind}">${i.kind==='fix'?'Fixa':'Variável'}</span><span class="chip ${o.payer}">${esc(pname(o.payer))}</span>${esc(o.cat)}</div>${(()=>{ const r=resolvePay(o.payer,o.payWith,i.due); return r?`<div class="sub">💰 salário de ${dshort(r.date)}</div>`:''; })()}${paidLine(i.paid)}${o.obs?`<div class="obs">${esc(o.obs)}</div>`:''}</div>
+        <div class="val">${brl(o.value)}<small>${i.kind==='fix'?(o.day?'vence dia '+o.day:''):'vence '+dshort(i.due)}</small></div>
       </div>`}).join(''):'<div class="empty">Nenhuma conta neste mês. Toque em + para adicionar.</div>'}</div>`;
 }
 
@@ -390,9 +545,21 @@ function renderConfig(){
       <label class="f">Pessoa 1<input id="n1" value="${esc(db.people.p1)}"></label>
       <label class="f">Pessoa 2<input id="n2" value="${esc(db.people.p2)}"></label>
     </div>
+    <div class="card"><h2>Salários</h2>
+      ${['p1','p2'].map(w=>{ const inc=(db.income&&db.income[w])||{track:false,pays:[]}; return `<div class="incblock" data-w="${w}">
+        <div class="row" style="align-items:center;margin:6px 0"><b class="chip ${w}" style="font-size:.85rem">${esc(pname(w))}</b>
+          <label class="muted" style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-inc="track" ${inc.track?'checked':''}> acompanhar saldo</label></div>
+        ${(inc.pays||[]).map((pay,i)=>`<div class="payrow" data-i="${i}">
+          <select data-inc="rule"><option value="day" ${pay.rule!=='bday'?'selected':''}>Dia do mês</option><option value="bday" ${pay.rule==='bday'?'selected':''}>Dia útil nº</option></select>
+          <input data-inc="n" type="number" min="1" max="31" inputmode="numeric" value="${esc(pay.n)}" aria-label="Dia">
+          <input data-inc="amount" inputmode="decimal" placeholder="Valor R$" value="${fmtIn(pay.amount)}" aria-label="Valor padrão">
+          <button data-inc="del" aria-label="Remover">✕</button></div>`).join('')}
+        <button class="link" style="margin:4px 0 12px" data-inc="add">+ adicionar recebimento</button></div>`; }).join('')}
+      <p class="hint" style="margin:0">"Dia útil nº" conta de segunda a sexta, sem feriados nacionais. O valor é o padrão de cada mês; para mudar só um mês, toque no valor na aba Salários.</p>
+    </div>
     <div class="card"><h2>Categorias</h2><div id="cats">${db.categories.map((c,i)=>`<div class="listedit"><span>${esc(c)}</span><button data-delcat="${i}" aria-label="Remover">✕</button></div>`).join('')}</div>
       <div class="addline"><input id="newcat" placeholder="Nova categoria"><button id="addcat">Adicionar</button></div></div>
-    <div class="card"><h2>Cartões</h2><div>${db.cards.map((c,i)=>`<div class="listedit"><span>${esc(c)}</span><button data-delcard="${i}" aria-label="Remover">✕</button></div>`).join('')}</div>
+    <div class="card"><h2>Cartões</h2><div>${db.cards.map((c,i)=>`<div class="listedit"><span data-cardcfg="${esc(c)}" style="cursor:pointer">${esc(c)} <small class="muted">· ${db.cardInfo[c]&&db.cardInfo[c].due?'vence dia '+db.cardInfo[c].due:'toque para definir o vencimento'} ›</small></span><button data-delcard="${i}" aria-label="Remover">✕</button></div>`).join('')}</div>
       <div class="addline"><input id="newcard" placeholder="Nome do cartão"><button id="addcard">Adicionar</button></div></div>
     ${(()=>{ let d=null; try{ d=JSON.parse(localStorage.getItem(OLDKEY)); }catch(e){}
       const n=d?(d.fixed||[]).length+(d.variable||[]).length+(d.purchases||[]).length:0;
@@ -406,6 +573,20 @@ function renderConfig(){
     <div class="card"><h2>Conta</h2><p class="muted" style="margin-top:0">Conectada como <b>${esc(auth.currentUser&&auth.currentUser.email)}</b></p>
       <button class="btn" style="width:100%" id="logout">Sair</button></div>
     <div class="card"><button class="btn danger" style="width:100%" id="wipe">Apagar todos os dados</button></div>`;
+  view.querySelectorAll('.incblock').forEach(bl=>{
+    const w=bl.dataset.w;
+    const getInc=()=>{ db.income=db.income||structuredClone(DEFAULT.income); return db.income[w]=db.income[w]||{track:false,pays:[]}; };
+    bl.addEventListener('change',e=>{ const el=e.target, f=el.dataset.inc; if(!f) return; const inc=getInc();
+      if(f==='track'){ inc.track=el.checked; }
+      else { const i=+el.closest('.payrow').dataset.i, pay=inc.pays[i];
+        if(f==='rule') pay.rule=el.value;
+        if(f==='n'){ const v=parseInt(el.value)||1; pay.n=Math.max(1,Math.min(pay.rule==='bday'?22:31,v)); }
+        if(f==='amount') pay.amount=num(el.value); }
+      putConfig(); if(f==='track'||f==='rule') render(); });
+    bl.addEventListener('click',e=>{ const el=e.target.closest('[data-inc]'); if(!el) return; const inc=getInc();
+      if(el.dataset.inc==='add'){ inc.pays.push({id:uid(),rule:'day',n:1,amount:0}); putConfig(); render(); }
+      if(el.dataset.inc==='del'){ const i=+el.closest('.payrow').dataset.i; if(!confirm('Remover este recebimento? As contas que usavam ele passam para a sugestão automática.')) return; inc.pays.splice(i,1); putConfig(); render(); } });
+  });
   const setName=(id,el)=>el.addEventListener('change',()=>{ db.people[id]=el.value.trim()||(id==='p1'?'Eu':'André'); putConfig(); });
   setName('p1',document.getElementById('n1')); setName('p2',document.getElementById('n2'));
   document.getElementById('addcat').onclick=()=>{ const v=document.getElementById('newcat').value.trim(); if(v&&!db.categories.includes(v)){db.categories.push(v);putConfig();render();} };
@@ -431,7 +612,24 @@ function renderConfig(){
 }
 
 /* ---------- Formulários ---------- */
-function opts(list,cur){ const l=cur&&!list.includes(cur)?[...list,cur]:list; return l.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join(''); }
+function opts(list,cur,newLabel){ const l=cur&&!list.includes(cur)?[...list,cur]:list;
+  return l.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('') + (newLabel?`<option value="__new__">${esc(newLabel)}</option>`:''); }
+// "+ Nova categoria…" / "+ Novo cartão…" direto no formulário
+function wireNewOption(sel){
+  const key=sel.dataset.list, ask=key==='cards'?'Nome do novo cartão:':'Nome da nova categoria:';
+  let prev=sel.value;
+  sel.addEventListener('focus',()=>{ if(sel.value!=='__new__') prev=sel.value; });
+  sel.addEventListener('change',()=>{
+    if(sel.value!=='__new__'){ prev=sel.value; return; }
+    const name=(prompt(ask)||'').trim();
+    if(!name){ sel.value=prev; return; }
+    const found=db[key].find(x=>x.toLowerCase()===name.toLowerCase());
+    const val=found||name;
+    if(!found){ db[key].push(name); putConfig(); toast(key==='cards'?'Cartão adicionado':'Categoria adicionada'); }
+    if(![...sel.options].some(o=>o.value===val)){ const o=document.createElement('option'); o.textContent=val; sel.insertBefore(o, sel.querySelector('option[value="__new__"]')); }
+    sel.value=val; prev=val;
+  });
+}
 function pickHTML(name,cur){ return `<div class="pick" data-pick="${name}">${['p1','p2'].map(p=>`<button type="button" data-v="${p}" class="${p} ${cur===p?'on':''}">${esc(pname(p))}</button>`).join('')}</div>`; }
 function openSheet(html,onMount){
   const ov=document.createElement('div'); ov.className='overlay';
@@ -440,15 +638,16 @@ function openSheet(html,onMount){
   ov.querySelectorAll('.pick').forEach(pk=>pk.addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return;
     pk.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); pk.dataset.val=b.dataset.v; }));
   ov.querySelectorAll('.pick').forEach(pk=>{ const on=pk.querySelector('.on'); if(on) pk.dataset.val=on.dataset.v; });
+  ov.querySelectorAll('select[data-list]').forEach(wireNewOption);
   document.body.appendChild(ov); onMount(ov, ()=>ov.remove());
 }
 const today = () => { const d=new Date(); return mkey(d)+'-'+String(d.getDate()).padStart(2,'0'); };
 function defaultDate(){ return month===mkey(new Date()) ? today() : month+'-01'; }
 
-function formConta(kind,o){
-  const isNew=!o; kind=kind||'var';
+function formConta(kind,o,dm){
+  const isNew=!o; kind=kind||'var'; dm=dm||month;
   o=o||{desc:'',cat:db.categories[0],value:'',payer:'p1',day:'',date:defaultDate(),start:month,end:null};
-  const paidNow = isNew ? '' : (kind==='fix' ? (o.paid&&o.paid[month]) : o.paid);
+  const paidNow = isNew ? '' : (kind==='fix' ? (o.paid&&o.paid[dm]) : o.paid);
   const wasPaid = !!paidNow;
   openSheet(`<h3>${isNew?'Nova conta':'Editar conta'}</h3>
     <label class="f">Tipo<div class="pick" id="kind">
@@ -456,12 +655,15 @@ function formConta(kind,o){
       <button type="button" data-v="var" class="neutral ${kind==='var'?'on':''}" ${isNew?'':'disabled'}>Variável</button></div></label>
     <label class="f">Descrição<input id="desc" value="${esc(o.desc)}" placeholder="Ex.: Aluguel, Luz, Farmácia"></label>
     <div class="f2"><label class="f">Valor (R$)<input id="value" inputmode="decimal" value="${fmtIn(o.value)}" placeholder="0,00"></label>
-      <label class="f">Categoria<select id="cat">${opts(db.categories,o.cat)}</select></label></div>
+      <label class="f">Categoria<select id="cat" data-list="categories">${opts(db.categories,o.cat,'+ Nova categoria…')}</select></label></div>
     <label class="f">Quem paga${pickHTML('payer',o.payer)}</label>
     <div id="fixFields" class="f2"><label class="f">Dia do vencimento<input id="day" type="number" min="1" max="31" inputmode="numeric" value="${esc(o.day)}"></label>
       <label class="f">Começa em<input id="start" type="month" value="${esc(o.start||month)}"></label></div>
     <div id="fixEnd"><label class="f">Termina em (opcional)<input id="end" type="month" value="${esc(o.end||'')}"></label><p class="hint">Deixe vazio se a conta continua. Preencha quando ela acabar, para não sumir do histórico.</p></div>
-    <div id="varFields"><label class="f">Data<input id="date" type="date" value="${esc(o.date||defaultDate())}"></label></div>
+    <div id="varFields" class="f2"><label class="f">Data da despesa<input id="date" type="date" value="${esc(o.date||defaultDate())}"></label>
+      <label class="f">Pagar até<input id="due" type="date" value="${esc(o.due||o.date||defaultDate())}"></label></div>
+    <label class="f">Pagar com o salário<select id="payWith"></select></label>
+    <p class="hint" id="payHint"></p>
     <label class="f"><span id="paidLabel">Pago em</span><input id="paidAt" type="datetime-local" value="${esc(typeof paidNow==='string'&&paidNow.includes('T')?paidNow:'')}"></label>
     <p class="hint">Vazio = ainda não pago. Ao tocar no círculo da lista, a data e a hora entram sozinhas; aqui você pode corrigir.</p>
     <label class="f">Observação<input id="obs" value="${esc(o.obs||'')}" placeholder="Opcional"></label>
@@ -469,7 +671,19 @@ function formConta(kind,o){
   (ov,close)=>{
     const $=id=>ov.querySelector('#'+id);
     const kindPick=$('kind'); kindPick.dataset.val=kind;
-    const sync=()=>{ const k=kindPick.dataset.val; $('paidLabel').textContent = k==='fix' ? 'Pago em (conta de '+mlabel(month).toLowerCase()+')' : 'Pago em'; $('fixFields').style.display=k==='fix'?'':'none'; $('fixEnd').style.display=k==='fix'?'':'none'; $('varFields').style.display=k==='var'?'':'none'; };
+    let picked = o.payWith ? {...o.payWith} : null, dueTouched = !!(o.due && o.due!==o.date);
+    const curPayer=()=>ov.querySelector('[data-pick=payer]').dataset.val;
+    const curDue=()=>kindPick.dataset.val==='fix' ? dm+'-'+pad2(Math.min(parseInt($('day').value)||1,lastDay(dm))) : ($('due').value||$('date').value||defaultDate());
+    const fillPay=()=>{ const who=curPayer(), due=curDue(), isFix=kindPick.dataset.val==='fix';
+      const cur = (picked && paysOf(who).some(x=>x.id===picked.pd)) ? picked : autoPay(who,due);
+      $('payWith').innerHTML = payOptionsHTML(who,due,cur,isFix);
+      $('payHint').textContent = isFix ? 'Vale para todos os meses. Ex.: com "mês anterior", a conta que vence em dezembro sai do salário de novembro.' : 'Sugestão automática: o último salário antes do vencimento. Você pode trocar.'; };
+    $('payWith').addEventListener('change',()=>{ const [pd,off]=$('payWith').value.split('|'); if(pd) picked={pd,off:+off}; });
+    ov.querySelector('[data-pick=payer]').addEventListener('click',()=>setTimeout(()=>{ picked=null; fillPay(); }));
+    $('day').addEventListener('input',fillPay);
+    $('due').addEventListener('input',()=>{ dueTouched=true; fillPay(); });
+    $('date').addEventListener('input',()=>{ if(!dueTouched) $('due').value=$('date').value; fillPay(); });
+    const sync=()=>{ const k=kindPick.dataset.val; $('paidLabel').textContent = k==='fix' ? 'Pago em (conta de '+mlabel(dm).toLowerCase()+')' : 'Pago em'; $('fixFields').style.display=k==='fix'?'':'none'; $('fixEnd').style.display=k==='fix'?'':'none'; $('varFields').style.display=k==='var'?'':'none'; fillPay(); };
     kindPick.addEventListener('click',()=>setTimeout(sync)); sync();
     $('cancel').onclick=close;
     if($('del')) $('del').onclick=()=>{ if(!confirm('Excluir esta conta?')) return;
@@ -477,14 +691,15 @@ function formConta(kind,o){
     $('ok').onclick=()=>{
       const k=kindPick.dataset.val, desc=$('desc').value.trim(), value=num($('value').value);
       if(!desc||!value){ toast('Preencha descrição e valor'); return; }
-      const base={desc,value,cat:$('cat').value,payer:ov.querySelector('[data-pick=payer]').dataset.val,obs:$('obs').value.trim()};
+      const pwv=$('payWith').value.split('|');
+      const base={desc,value,cat:$('cat').value,payer:curPayer(),obs:$('obs').value.trim(),payWith:pwv[0]?{pd:pwv[0],off:+pwv[1]}:null};
       const pv=$('paidAt').value, paidVal = pv || (wasPaid && paidNow===true ? true : '');
       if(k==='fix'){
         Object.assign(o,base,{day:parseInt($('day').value)||'',start:$('start').value||month,end:$('end').value||null});
         if(isNew){ o.id=uid(); o.paid={}; db.fixed.push(o); }
-        o.paid=o.paid||{}; if(paidVal) o.paid[month]=paidVal; else delete o.paid[month];
+        o.paid=o.paid||{}; if(paidVal) o.paid[dm]=paidVal; else delete o.paid[dm];
       } else {
-        Object.assign(o,base,{date:$('date').value||defaultDate()});
+        Object.assign(o,base,{date:$('date').value||defaultDate(),due:$('due').value||$('date').value||defaultDate()});
         if(isNew){ o.id=uid(); db.variable.push(o); }
         o.paid = paidVal || false;
       }
@@ -499,8 +714,8 @@ function formCompra(o){
   o=o||{date:defaultDate(),card:db.cards[0]||'',desc:'',cat:db.categories[0],owner:'p1',n:1,inst:'',first:madd(month,0)};
   openSheet(`<h3>${isNew?'Nova compra no cartão':'Editar compra'}</h3>
     <label class="f">Descrição<input id="desc" value="${esc(o.desc)}" placeholder="Ex.: Geladeira, Mercado"></label>
-    <div class="f2"><label class="f">Cartão<select id="card">${opts(db.cards,o.card)}</select></label>
-      <label class="f">Categoria<select id="cat">${opts(db.categories,o.cat)}</select></label></div>
+    <div class="f2"><label class="f">Cartão<select id="card" data-list="cards">${opts(db.cards,o.card,'+ Novo cartão…')}</select></label>
+      <label class="f">Categoria<select id="cat" data-list="categories">${opts(db.categories,o.cat,'+ Nova categoria…')}</select></label></div>
     <label class="f">De quem é o gasto${pickHTML('owner',o.owner)}</label>
     <div class="f2"><label class="f">Parcelas<input id="n" type="number" min="1" max="72" inputmode="numeric" value="${esc(o.n)}"></label>
       <label class="f">Valor da parcela (R$)<input id="inst" inputmode="decimal" value="${fmtIn(o.inst)}" placeholder="0,00"></label></div>
@@ -509,6 +724,7 @@ function formCompra(o){
     <div class="f2"><label class="f">Data da compra<input id="date" type="date" value="${esc(o.date)}"></label>
       <label class="f">1ª parcela na fatura de<input id="first" type="month" value="${esc(o.first)}"></label></div>
     <label class="f">Observação<input id="obs" value="${esc(o.obs||'')}" placeholder="Opcional"></label>
+    <p class="hint">A parcela entra na fatura do cartão e cai no salário de quem fez o gasto, conforme o vencimento do cartão (Ajustes → Cartões).</p>
     <div class="actions">${isNew?'':'<button class="btn danger" id="del">Excluir</button>'}<button class="btn" id="cancel">Cancelar</button><button class="btn primary" id="ok">Salvar</button></div>`,
   (ov,close)=>{
     const $=id=>ov.querySelector('#'+id);
@@ -530,25 +746,57 @@ function formCompra(o){
   });
 }
 
+function formCartao(name){
+  db.cardInfo=db.cardInfo||{}; const ci=db.cardInfo[name]||{}, pay=ci.pay||{};
+  const rel=(w)=>{ const pays=paysOf(w); if(!pays.length) return `<option value="">Cadastre os salários de ${esc(pname(w))}</option>`;
+    const cur=pay[w]?pay[w].pd+'|'+pay[w].off:'';
+    return `<option value="" ${cur?'':'selected'}>Automático: último salário antes do vencimento</option>` + [-1,0].flatMap(off=>pays.map(p=>{ const v=p.id+'|'+off;
+      return `<option value="${v}" ${v===cur?'selected':''}>${esc(payLabel(p))} do ${off?'mês anterior ao vencimento':'mesmo mês do vencimento'}</option>`; })).join(''); };
+  openSheet(`<h3>${esc(name)}</h3>
+    <label class="f">Dia do vencimento da fatura<input id="due" type="number" min="1" max="31" inputmode="numeric" value="${esc(ci.due||'')}" placeholder="Ex.: 10"></label>
+    <p class="hint">A fatura de um mês vence nesse dia daquele mês. Ex.: as parcelas da fatura de dezembro vencem no dia 10/12.</p>
+    ${['p1','p2'].map(w=>`<label class="f">Parte de ${esc(pname(w))}: pagar com<select id="pay_${w}">${rel(w)}</select></label>`).join('')}
+    <p class="hint" id="exHint"></p>
+    <div class="actions"><button class="btn" id="cancel">Cancelar</button><button class="btn primary" id="ok">Salvar</button></div>`,
+  (ov,close)=>{
+    const $=id=>ov.querySelector('#'+id);
+    const ex=()=>{ const d=parseInt($('due').value)||10, D=madd(month,1), due=D+'-'+pad2(Math.min(d,lastDay(D)));
+      $('exHint').textContent='Exemplo, fatura de '+mlabel(D).toLowerCase()+' (vence '+dshort(due)+'): '+['p1','p2'].map(w=>{ const v=$('pay_'+w).value.split('|'), r=resolvePay(w,v[0]?{pd:v[0],off:+v[1]}:null,due); return pname(w)+' → '+(r?'salário de '+dshort(r.date):'sem salário'); }).join(' · '); };
+    ['due','pay_p1','pay_p2'].forEach(id=>$(id).addEventListener('input',ex)); ex();
+    $('cancel').onclick=close;
+    $('ok').onclick=()=>{ const p={}; ['p1','p2'].forEach(w=>{ const v=$('pay_'+w).value.split('|'); if(v[0]) p[w]={pd:v[0],off:+v[1]}; });
+      db.cardInfo[name]={due:Math.max(1,Math.min(31,parseInt($('due').value)||10)),pay:p}; putConfig(); close(); render(); };
+  });
+}
+
 /* ---------- Eventos ---------- */
 document.getElementById('prev').onclick=()=>{ month=madd(month,-1); render(); };
 document.getElementById('next').onclick=()=>{ month=madd(month,1); render(); };
 document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; render(); window.scrollTo(0,0); });
 document.getElementById('fab').onclick=()=>{ tab==='cartao'?formCompra():formConta(fContas.type==='fix'?'fix':'var'); };
 view.addEventListener('click',e=>{
-  const t=e.target.closest('[data-cpay],[data-pay],[data-edit],[data-type],[data-who],[data-cwho],[data-ccard],[data-call],[data-delcat],[data-delcard]');
+  const t=e.target.closest('[data-income],[data-goto],[data-cardcfg],[data-cpay],[data-pay],[data-edit],[data-type],[data-who],[data-cwho],[data-ccard],[data-call],[data-delcat],[data-delcard]');
   if(!t) return;
   const d=t.dataset;
-  if(d.cpay){ const i=d.cpay.lastIndexOf('|'), c=d.cpay.slice(0,i), w=d.cpay.slice(i+1), k=cpKey(month,c,w);
+  const pm=d.pm||month;
+  if(d.goto){ tab=d.goto; render(); window.scrollTo(0,0); return; }
+  if(d.cardcfg!==undefined){ formCartao(d.cardcfg); return; }
+  if(d.income){ const [w,id]=d.income.split('|'), pay=paysOf(w).find(x=>x.id===id); if(!pay) return;
+    const k=incKey(month,w,id), cur=payAmount(month,w,pay);
+    const ans=prompt(`Valor recebido no salário de ${dshort(payDate(pay,month))} (${mlabel(month)}).\nDeixe vazio para usar o valor padrão (${brl(pay.amount||0)}).`, fmtIn(cur));
+    if(ans===null) return;
+    if(ans.trim()===''){ delete db.incomeMonth[k]; setIncome(k,null); } else { const v=num(ans); db.incomeMonth[k]=v; setIncome(k,v); }
+    render(); return; }
+  if(d.cpay){ const i=d.cpay.lastIndexOf('|'), c=d.cpay.slice(0,i), w=d.cpay.slice(i+1), k=cpKey(pm,c,w);
     db.cardPaid=db.cardPaid||{}; if(db.cardPaid[k]) delete db.cardPaid[k]; else db.cardPaid[k]=nowStamp();
     setCardPaid(k, db.cardPaid[k]||null); render(); return; }
   if(d.pay){ e.stopPropagation(); const [k,id]=d.pay.split(':');
-    if(k==='fix'){ const f=db.fixed.find(x=>x.id===id); f.paid=f.paid||{}; if(f.paid[month]) delete f.paid[month]; else f.paid[month]=nowStamp(); putItem('fixed',f); }
+    if(k==='fix'){ const f=db.fixed.find(x=>x.id===id); f.paid=f.paid||{}; if(f.paid[pm]) delete f.paid[pm]; else f.paid[pm]=nowStamp(); putItem('fixed',f); }
     else { const v=db.variable.find(x=>x.id===id); v.paid=v.paid?false:nowStamp(); putItem('variable',v); }
     render(); return; }
   if(d.edit){ const [k,id]=d.edit.split(':');
-    if(k==='fix') formConta('fix',db.fixed.find(x=>x.id===id));
-    else if(k==='var') formConta('var',db.variable.find(x=>x.id===id));
+    if(k==='fix') formConta('fix',db.fixed.find(x=>x.id===id),pm);
+    else if(k==='var') formConta('var',db.variable.find(x=>x.id===id),pm);
     else formCompra(db.purchases.find(x=>x.id===id)); return; }
   if(d.type){ fContas.type=d.type; } else if(d.who){ fContas.who=d.who; }
   else if(d.cwho){ fCard.who=d.cwho; } else if(d.ccard){ fCard.card=d.ccard; } else if(d.call){ fCard.all=d.call==='all'; }
