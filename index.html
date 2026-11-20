@@ -97,6 +97,14 @@
   .payrow{display:grid;grid-template-columns:1.3fr .6fr 1fr auto;gap:6px;margin-bottom:6px}
   .payrow select,.payrow input{padding:9px 8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);min-width:0}
   .payrow button{border:0;background:none;color:var(--danger);font-size:1.1rem;cursor:pointer}
+  .legend{display:flex;gap:14px;font-size:.8rem;color:var(--muted);margin-bottom:6px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .chartsel{display:flex;flex-direction:column;gap:2px;font-size:.85rem;background:var(--bg);border-radius:10px;padding:8px 10px;margin-top:6px}
+  .mtable{width:100%;border-collapse:collapse;font-size:.82rem}
+  .mtable th{text-align:right;color:var(--muted);font-weight:600;padding:4px 2px;border-bottom:1px solid var(--line)}
+  .mtable td{text-align:right;padding:9px 2px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .mtable th:first-child,.mtable td:first-child{text-align:left}
+  .mtable tr[data-gomonth]{cursor:pointer}
   .neg{color:var(--danger)!important} .pos{color:var(--ok)}
   .warn{background:#fdecea;color:var(--danger);border-radius:10px;padding:10px 12px;font-size:.88rem;font-weight:600;margin-top:10px}
   .payhead{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}
@@ -119,7 +127,7 @@
 <button class="fab" id="fab" aria-label="Adicionar">+</button>
 <div id="auth" class="authwrap"></div>
 <nav class="tabs">
-  <button data-tab="resumo" class="on"><span>📊</span>Resumo</button>
+  <button data-tab="resumo" class="on"><span>📊</span>Painel</button>
   <button data-tab="salarios"><span>💰</span>Salários</button>
   <button data-tab="contas"><span>🧾</span>Contas</button>
   <button data-tab="cartao"><span>💳</span>Cartão</button>
@@ -432,28 +440,76 @@ function personBox(id,s){
     <div class="row"><span>Cartão</span><span>${brl(s.card)}</span></div>
     <div class="row muted"><span>Falta pagar</span><span>${brl(s.open)}</span></div></div>`;
 }
+let pWho='p1', pCat='month', pSel=null;
+function chartSVG(rows){ // rows: [{k, inc, exp, res, neg}]
+  const W=340, H=180, L=40, R=4, T=10, B=28, ih=H-T-B, iw=W-L-R;
+  const max=Math.max(1,...rows.map(r=>Math.max(r.inc,r.exp)));
+  const step=[1,2,2.5,5,10].map(m=>m*Math.pow(10,Math.floor(Math.log10(max/3)))).find(v=>max/v<=4)||max/3;
+  const top=Math.ceil(max/step)*step, y=v=>T+ih-(v/top)*ih;
+  const slot=iw/rows.length, bw=Math.min(18,(slot-14)/2);
+  let g='';
+  for(let v=step; v<=top+1e-9; v+=step) g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${L-6}" y="${y(v)+3}" text-anchor="end" font-size="9" fill="var(--muted)">${(v>=1000?(v/1000).toLocaleString('pt-BR',{maximumFractionDigits:1})+' mil':v)}</text>`;
+  const bar=(x,v,c)=>{ const h=Math.max(v>0?2:0,(v/top)*ih), yy=T+ih-h, r=Math.min(4,h); 
+    return h?`<path d="M${x},${T+ih} V${yy+r} Q${x},${yy} ${x+r},${yy} H${x+bw-r} Q${x+bw},${yy} ${x+bw},${yy+r} V${T+ih} Z" fill="${c}"/>`:''; };
+  rows.forEach((r,i)=>{ const cx=L+slot*i+slot/2, sel=r.k===pSel;
+    g+=`<g data-pmonth="${r.k}" style="cursor:pointer">
+      <rect x="${L+slot*i}" y="${T}" width="${slot}" height="${ih+B}" fill="${sel?'var(--brand-soft)':'transparent'}" rx="6"/>
+      ${bar(cx-bw-1,r.inc,'#1a8f70')}${bar(cx+1,r.exp,'#d06a3a')}
+      <text x="${cx}" y="${H-10}" text-anchor="middle" font-size="10" fill="${r.neg?'var(--danger)':'var(--muted)'}" font-weight="${r.k===month?700:400}">${r.neg?'⚠ ':''}${esc(mshort(r.k))}</text></g>`; });
+  g+=`<line x1="${L}" x2="${W-R}" y1="${T+ih}" y2="${T+ih}" stroke="var(--muted)" stroke-width="1"/>`;
+  g+=`<text x="${L-6}" y="${T+ih+3}" text-anchor="end" font-size="9" fill="var(--muted)">0</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Receitas e despesas por mês">${g}</svg>`;
+}
 function renderResumo(){
+  const tracked=['p1','p2'].filter(w=>tracks(w)&&paysOf(w).length);
+  if(tracked.length && !tracked.includes(pWho)) pWho=tracked[0];
   const s=summary(month);
-  const t1=s.p1.fix+s.p1.var+s.p1.card, t2=s.p2.fix+s.p2.var+s.p2.card, tot=t1+t2;
-  const cats=Object.entries(s.cats).map(([c,v])=>[c,v,v.p1+v.p2]).filter(x=>x[2]>0).sort((a,b)=>b[2]-a[2]);
-  const max=cats.length?cats[0][2]:1;
-  const cards=Object.entries(s.cards);
-  const plans=['p1','p2'].filter(w=>tracks(w)&&paysOf(w).length).map(w=>[w,payPlan(month,w)]);
-  view.innerHTML = plans.map(([w,pl])=>`<div class="card" data-goto="salarios" style="cursor:pointer">
-      <div class="row"><span class="muted">Saldo de ${esc(pname(w))} no mês</span><span class="muted">ver por salário ›</span></div>
+  let html='';
+  if(tracked.length){
+    if(tracked.length>1) html+=segHTML(tracked.map(w=>[w,pname(w)]),pWho,'pwho');
+    const pl=payPlan(month,pWho);
+    html+=`<div class="card" data-goto="salarios" style="cursor:pointer">
+      <div class="row"><span class="muted">Saldo de ${esc(pname(pWho))} em ${esc(mlabel(month).toLowerCase())}</span><span class="muted">por salário ›</span></div>
       <div class="big ${pl.result<0?'neg':''}">${brl(pl.result)}</div>
-      <div class="row muted"><span>Entradas ${brl(pl.income)}</span><span>Contas ${brl(pl.spent)}</span></div>
-      ${pl.neg?`<div class="warn">⚠ Vai ficar negativo em algum salário deste mês.</div>`:''}</div>`).join('') + `
-    <div class="card"><div class="muted">Total gasto no mês</div><div class="big">${brl(tot)}</div>
-      ${tot?`<div class="bar"><i style="width:${t1/tot*100}%;background:var(--p1)"></i><i style="width:${t2/tot*100}%;background:var(--p2)"></i></div>`:''}
-    </div>
-    <div class="grid2" style="margin-bottom:12px">${personBox('p1',s.p1)}${personBox('p2',s.p2)}</div>
-    ${cards.length?`<div class="card"><h2>Faturas do mês</h2>${cards.map(([c,v])=>faturaHTML(c,v)).join('')}</div>`:''}
-    <div class="card"><h2>Por categoria</h2>
-      ${cats.length?cats.map(([c,v,t])=>`<div class="catrow"><div class="row"><span>${esc(c)}</span><b>${brl(t)}</b></div>
-        <div class="bar" style="width:${Math.max(t/max*100,4)}%"><i style="width:${v.p1/t*100}%;background:var(--p1)"></i><i style="width:${v.p2/t*100}%;background:var(--p2)"></i></div></div>`).join('')
-      :'<div class="empty">Nenhum gasto neste mês ainda.<br>Use as abas Contas e Cartão para lançar.</div>'}
-    </div>`;
+      <div class="row muted"><span>Receitas ${brl(pl.income)}</span><span>Despesas ${brl(pl.spent)}</span></div>
+      ${pl.neg?`<div class="warn">⚠ Fica negativo${pl.groups.filter(g=>g.saldo<0).map(g=>` no salário de ${dshort(g.date)} (${brl(g.saldo)})`).join(' e')}.</div>`:''}</div>`;
+    // gráfico: 2 meses antes até 3 depois
+    const rows=[-2,-1,0,1,2,3].map(o=>{ const k=madd(month,o), p=payPlan(k,pWho); return {k,inc:p.income,exp:p.spent,res:p.result,neg:p.neg||p.result<0}; });
+    if(!pSel || !rows.some(r=>r.k===pSel)) pSel=month;
+    const sr=rows.find(r=>r.k===pSel);
+    html+=`<div class="card"><h2>Receitas × despesas</h2>
+      <div class="legend"><span><i style="background:#1a8f70"></i>Receitas</span><span><i style="background:#d06a3a"></i>Despesas</span></div>
+      ${chartSVG(rows)}
+      <div class="chartsel"><b>${esc(mlabel(sr.k))}</b><span>Receitas ${brl(sr.inc)} · Despesas ${brl(sr.exp)}</span>
+        <span>Resultado <b class="${sr.res<0?'neg':'pos'}">${brl(sr.res)}</b>${sr.neg?' · ⚠ fica negativo em algum salário':''}</span></div>
+      <p class="muted" style="margin:6px 0 0;font-size:.78rem">Toque num mês para ver os valores. Despesas = contas pagas com os salários daquele mês.</p></div>`;
+    // próximos meses
+    const next=[0,1,2,3,4,5].map(o=>{ const k=madd(month,o), p=payPlan(k,pWho); return {k,p}; });
+    html+=`<div class="card"><h2>Próximos meses</h2>
+      <table class="mtable"><thead><tr><th>Mês</th><th>Receitas</th><th>Despesas</th><th>Resultado</th></tr></thead><tbody>
+      ${next.map(({k,p})=>`<tr data-gomonth="${k}"><td>${p.neg?'<span class="neg">⚠</span> ':''}${esc(mshort(k))}</td><td>${brl(p.income)}</td><td>${brl(p.spent)}</td>
+        <td class="${p.result<0?'neg':'pos'}"><b>${brl(p.result)}</b></td></tr>`).join('')}
+      </tbody></table>
+      <p class="muted" style="margin:8px 0 0;font-size:.78rem">⚠ = algum salário do mês fica negativo. Toque num mês para abrir o detalhe por salário.</p></div>`;
+  } else {
+    html+=`<div class="card"><div class="empty">Cadastre seus salários em <b>Ajustes → Salários</b> e marque "acompanhar saldo" para ver receitas, despesas e saldo aqui.</div></div>`;
+  }
+  // categorias
+  const ks = pCat==='month' ? [month] : [0,1,2,3,4,5].map(o=>madd(month,o));
+  const cats={}; ks.forEach(k=>Object.entries(summary(k).cats).forEach(([c,v])=>{ cats[c]=cats[c]||{p1:0,p2:0}; cats[c].p1+=v.p1; cats[c].p2+=v.p2; }));
+  const cl=Object.entries(cats).map(([c,v])=>[c,v,v.p1+v.p2]).filter(x=>x[2]>0).sort((a,b)=>b[2]-a[2]);
+  const max=cl.length?cl[0][2]:1, ctot=cl.reduce((a,x)=>a+x[2],0);
+  html+=`<div class="card"><h2>Despesas por categoria</h2>
+    ${segHTML([['month','Este mês'],['six','Próximos 6 meses']],pCat,'pcat')}
+    <div class="legend"><span><i style="background:var(--p1)"></i>${esc(pname('p1'))}</span><span><i style="background:var(--p2)"></i>${esc(pname('p2'))}</span></div>
+    ${cl.length?cl.map(([c,v,t])=>`<div class="catrow"><div class="row"><span>${esc(c)}</span><span><b>${brl(t)}</b> <small class="muted">${Math.round(t/ctot*100)}%</small></span></div>
+      <div class="bar" style="width:${Math.max(t/max*100,4)}%"><i style="width:${v.p1/t*100}%;background:var(--p1)"></i><i style="width:${v.p2/t*100}%;background:var(--p2)"></i></div>
+      <div class="row muted" style="font-size:.75rem"><span>${esc(pname('p1'))} ${brl(v.p1)}</span><span>${esc(pname('p2'))} ${brl(v.p2)}</span></div></div>`).join('')
+    :'<div class="empty">Nenhuma despesa nesse período.</div>'}
+    <div class="sumline total"><span>Total</span><span>${brl(ctot)}</span></div></div>`;
+  const cards=Object.entries(s.cards);
+  if(cards.length) html+=`<div class="card"><h2>Faturas de ${esc(mlabel(month).toLowerCase())}</h2>${cards.map(([c,v])=>faturaHTML(c,v)).join('')}</div>`;
+  view.innerHTML=html;
 }
 
 function itemRowHTML(x){
@@ -825,10 +881,14 @@ document.getElementById('next').onclick=()=>{ month=madd(month,1); render(); };
 document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; render(); window.scrollTo(0,0); });
 document.getElementById('fab').onclick=()=>{ tab==='cartao'?formCompra():tab==='salarios'?formReceita():formConta(fContas.type==='fix'?'fix':'var'); };
 view.addEventListener('click',e=>{
-  const t=e.target.closest('[data-rec],[data-income],[data-goto],[data-cardcfg],[data-cpay],[data-pay],[data-edit],[data-type],[data-who],[data-cwho],[data-ccard],[data-call],[data-delcat],[data-delcard]');
+  const t=e.target.closest('[data-pmonth],[data-gomonth],[data-pwho],[data-pcat],[data-rec],[data-income],[data-goto],[data-cardcfg],[data-cpay],[data-pay],[data-edit],[data-type],[data-who],[data-cwho],[data-ccard],[data-call],[data-delcat],[data-delcard]');
   if(!t) return;
   const d=t.dataset;
   const pm=d.pm||month;
+  if(d.pmonth){ pSel=d.pmonth; render(); return; }
+  if(d.gomonth){ month=d.gomonth; tab='salarios'; render(); window.scrollTo(0,0); return; }
+  if(d.pwho){ pWho=d.pwho; render(); return; }
+  if(d.pcat){ pCat=d.pcat; render(); return; }
   if(d.rec){ formReceita(db.receitas.find(x=>x.id===d.rec)); return; }
   if(d.goto){ tab=d.goto; render(); window.scrollTo(0,0); return; }
   if(d.cardcfg!==undefined){ formCartao(d.cardcfg); return; }
