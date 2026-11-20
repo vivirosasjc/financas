@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f6f5c">
+<meta name="color-scheme" content="light only">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Finanças">
@@ -12,15 +13,11 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>Finanças da casa</title>
 <style>
-  :root{
+  :root{ color-scheme: light;
     --bg:#f5f4f0; --card:#fff; --ink:#1d1d1b; --muted:#6b6a65; --line:#e4e2dc;
     --brand:#1f6f5c; --brand-soft:#e3f0ec; --p1:#2f6fb5; --p1-soft:#e4eef9; --p2:#b5602f; --p2-soft:#f9ebe2;
     --danger:#b3261e; --ok:#2e7d32; --radius:14px;
     --safe-b:env(safe-area-inset-bottom,0px);
-  }
-  @media (prefers-color-scheme:dark){
-    :root{--bg:#141413;--card:#1f1f1d;--ink:#f0efe9;--muted:#a3a19a;--line:#33322e;
-      --brand:#5cc2a5;--brand-soft:#1d3a32;--p1:#7fb0ea;--p1-soft:#1c2b3d;--p2:#eba57c;--p2-soft:#3b2619;--danger:#f2867f;--ok:#81c784}
   }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
@@ -102,7 +99,6 @@
   .payrow button{border:0;background:none;color:var(--danger);font-size:1.1rem;cursor:pointer}
   .neg{color:var(--danger)!important} .pos{color:var(--ok)}
   .warn{background:#fdecea;color:var(--danger);border-radius:10px;padding:10px 12px;font-size:.88rem;font-weight:600;margin-top:10px}
-  @media (prefers-color-scheme:dark){ .warn{background:#3a1d1b} }
   .payhead{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}
   .payhead .amt{border:0;background:var(--brand-soft);color:var(--brand);font-weight:700;border-radius:10px;padding:6px 10px;cursor:pointer;font-size:.95rem}
   .sumline{display:flex;justify-content:space-between;font-size:.88rem;padding:3px 0}
@@ -152,7 +148,7 @@ let fs;
 try { fs = initializeFirestore(fbApp, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }
 catch(e) { fs = initializeFirestore(fbApp, {}); }
 const casa = doc(fs, 'casas', 'principal');
-const COLS = ['fixed','variable','purchases'];
+const COLS = ['fixed','variable','purchases','receitas'];
 
 /* ---------- Dados ---------- */
 const OLDKEY = 'financas-casa-v1';
@@ -163,6 +159,8 @@ const DEFAULT = {
   fixed: [],    // {id, desc, cat, value, day, payer, start, end, paid:{'YYYY-MM':'data/hora'}, obs}
   variable: [], // {id, date, desc, cat, value, payer, paid, obs}
   purchases: [],// {id, date, card, desc, cat, owner, n, inst, first, obs}
+  receitas: [], // {id, desc, cat, value, who, date:'YYYY-MM-DD', monthly, end:'YYYY-MM'|null, obs}
+  incomeCats: ['Salário','Férias','13º salário','Extra','INSS','Outros'],
   cardPaid: {}, // {'YYYY-MM|cartão|p1': 'data/hora'}
   // Recebimentos: rule 'day' = dia fixo do mês; 'bday' = Nº dia útil (seg–sex, sem feriados nacionais)
   income: {
@@ -177,7 +175,7 @@ const clean = o => JSON.parse(JSON.stringify(o));
 const cpId = k => encodeURIComponent(k).replace(/\./g,'%2E');
 function putItem(col,o){ setDoc(doc(casa,col,o.id), clean(o)).catch(writeErr); }
 function delItem(col,id){ deleteDoc(doc(casa,col,id)).catch(writeErr); }
-function putConfig(){ setDoc(casa, clean({people:db.people,categories:db.categories,cards:db.cards,income:db.income,cardInfo:db.cardInfo}), {merge:true}).catch(writeErr); }
+function putConfig(){ setDoc(casa, clean({people:db.people,categories:db.categories,cards:db.cards,income:db.income,cardInfo:db.cardInfo,incomeCats:db.incomeCats}), {merge:true}).catch(writeErr); }
 function setIncome(k,v){ const r=doc(casa,'income',cpId(k)); (v!=null?setDoc(r,{k,v}):deleteDoc(r)).catch(writeErr); }
 function setCardPaid(k,at){ const r=doc(casa,'cardPaid',cpId(k)); (at?setDoc(r,{k,at}):deleteDoc(r)).catch(writeErr); }
 function writeErr(e){ console.error(e); toast(e.code==='permission-denied'?'Sem permissão para salvar':'Erro ao salvar: '+(e.code||e.message)); }
@@ -194,7 +192,8 @@ async function importAll(d, replace){
   const cfg={ people:d.people||db.people,
     categories:replace?(d.categories||db.categories):[...new Set([...db.categories,...(d.categories||[])])],
     cards:replace?(d.cards||db.cards):[...new Set([...db.cards,...(d.cards||[])])],
-    income:d.income||db.income, cardInfo:{...db.cardInfo,...(d.cardInfo||{})} };
+    income:d.income||db.income, cardInfo:{...db.cardInfo,...(d.cardInfo||{})},
+    incomeCats:[...new Set([...(db.incomeCats||[]),...(d.incomeCats||[])])] };
   ops.push([casa,clean(cfg)]);
   await bulk(ops);
 }
@@ -202,7 +201,7 @@ async function wipeAll(){
   const ops=[]; COLS.forEach(c=>db[c].forEach(o=>ops.push([doc(casa,c,o.id),null])));
   Object.keys(db.cardPaid).forEach(k=>ops.push([doc(casa,'cardPaid',cpId(k)),null]));
   Object.keys(db.incomeMonth).forEach(k=>ops.push([doc(casa,'income',cpId(k)),null]));
-  ops.push([casa,clean({people:DEFAULT.people,categories:DEFAULT.categories,cards:DEFAULT.cards,income:DEFAULT.income,cardInfo:{}})]);
+  ops.push([casa,clean({people:DEFAULT.people,categories:DEFAULT.categories,cards:DEFAULT.cards,income:DEFAULT.income,cardInfo:{},incomeCats:DEFAULT.incomeCats})]);
   await bulk(ops);
 }
 
@@ -219,7 +218,7 @@ function startSync(){
   stopSync();
   unsubs.push(onSnapshot(casa, s=>{
     const d=s.data();
-    if(d){ ['people','categories','cards','income','cardInfo'].forEach(k=>{ if(d[k]) db[k]=d[k]; }); }
+    if(d){ ['people','categories','cards','income','cardInfo','incomeCats'].forEach(k=>{ if(d[k]) db[k]=d[k]; }); }
     else if(!s.metadata.fromCache){ putConfig(); }
     gotConfig=true; scheduleRender();
   }, syncErr));
@@ -387,14 +386,25 @@ function obligations(M){
   return out;
 }
 // Visão por salário de uma pessoa no mês M
+function receitasIn(M, who){ // receitas que entram no mês M
+  return (db.receitas||[]).filter(r=>r.who===who && r.date).map(r=>{
+    if(r.monthly){ const s0=r.date.slice(0,7); if(mdiff(s0,M)<0 || (r.end && mdiff(M,r.end)<0)) return null;
+      return {r, date:M+'-'+pad2(Math.min(+r.date.slice(8,10),lastDay(M)))}; }
+    return r.date.slice(0,7)===M ? {r, date:r.date} : null;
+  }).filter(Boolean).sort((a,b)=>a.date.localeCompare(b.date));
+}
 function payPlan(M, who){
   const obs=obligations(M).filter(x=>x.who===who);
   const groups=paysOf(who).map(pay=>({pay,date:payDate(pay,M),amount:payAmount(M,who,pay),items:[]})).sort((a,b)=>a.date.localeCompare(b.date));
   obs.forEach(x=>{ const g=groups.find(g=>g.pay.id===x.pd); if(g) g.items.push(x); });
   let carry=0; const track=tracks(who);
+  groups.forEach(g=>g.extras=[]);
+  receitasIn(M,who).forEach(x=>{ // entra no período do salário recebido até a data da receita
+    let g=null; groups.forEach(gr=>{ if(gr.date<=x.date) g=gr; }); (g||groups[0]) && (g||groups[0]).extras.push(x); });
   groups.forEach(g=>{ g.items.sort((a,b)=>a.due.localeCompare(b.due)); g.total=g.items.reduce((a,x)=>a+x.value,0);
-    g.open=g.items.filter(x=>!x.paid).reduce((a,x)=>a+x.value,0); g.carry=carry; g.saldo=carry+(track?g.amount:0)-g.total; carry=g.saldo; });
-  const income=track?groups.reduce((a,g)=>a+g.amount,0):0, spent=groups.reduce((a,g)=>a+g.total,0);
+    g.extra=g.extras.reduce((a,x)=>a+x.r.value,0);
+    g.open=g.items.filter(x=>!x.paid).reduce((a,x)=>a+x.value,0); g.carry=carry; g.saldo=carry+(track?g.amount+g.extra:0)-g.total; carry=g.saldo; });
+  const income=track?groups.reduce((a,g)=>a+g.amount+g.extra,0):0, spent=groups.reduce((a,g)=>a+g.total,0);
   return {groups, income, spent, result:income-spent, track, neg:groups.some(g=>track&&g.saldo<0)};
 }
 
@@ -408,7 +418,7 @@ const view = document.getElementById('view');
 function render(){
   document.getElementById('monthTitle').textContent = mlabel(month);
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
-  document.getElementById('fab').style.display = (tab==='contas'||tab==='cartao') ? '' : 'none';
+  document.getElementById('fab').style.display = (tab==='contas'||tab==='cartao'||tab==='salarios') ? '' : 'none';
   document.querySelector('header').style.display = tab==='config' ? 'none' : '';
   ({resumo:renderResumo, salarios:renderSalarios, contas:renderContas, cartao:renderCartao, config:renderConfig})[tab]();
 }
@@ -459,7 +469,9 @@ function itemRowHTML(x){
 }
 function renderSalarios(){
   const people=['p1','p2'].filter(w=>paysOf(w).length);
+  const orphan=['p1','p2'].filter(w=>!paysOf(w).length && receitasIn(month,w).length);
   if(!people.length){ view.innerHTML='<div class="card"><div class="empty">Cadastre os salários em <b>Ajustes → Salários</b>.</div></div>'; return; }
+  const orphanHTML = orphan.map(w=>`<div class="card"><h2>Receitas de ${esc(pname(w))}</h2>${receitasIn(month,w).map(x=>`<div class="item" data-rec="${x.r.id}"><div class="main"><div class="title">${esc(x.r.desc)}</div><div class="sub">${esc(x.r.cat)} · entra em ${dshort(x.date)}</div></div><div class="val pos">+ ${brl(x.r.value)}</div></div>`).join('')}<p class="muted" style="margin:6px 0 0">Cadastre um salário de ${esc(pname(w))} em Ajustes para essas receitas entrarem no saldo.</p></div>`).join('');
   view.innerHTML = people.map(w=>{
     const pl=payPlan(month,w);
     const head = pl.track
@@ -468,23 +480,29 @@ function renderSalarios(){
           <div class="sumline"><span>Contas que caem nesses salários</span><b>${brl(pl.spent)}</b></div>
           <div class="sumline total"><span>Resultado do mês</span><span class="${pl.result<0?'neg':'pos'}">${brl(pl.result)}</span></div>
           ${pl.neg?`<div class="warn">⚠ Vai ficar negativo${pl.groups.filter(g=>g.saldo<0).map(g=>` no salário de ${dshort(g.date)} (${brl(g.saldo)})`).join(' e')}.</div>`:''}
-          ${pl.income===0?'<p class="muted" style="margin:8px 0 0">Informe o valor dos salários em Ajustes → Salários, ou toque no valor de cada salário abaixo.</p>':''}</div>`
+          ${pl.income===0?'<p class="muted" style="margin:8px 0 0">Informe o valor dos salários em Ajustes → Salários, ou toque no valor de cada salário abaixo.</p>':''}
+          <p class="muted" style="margin:8px 0 0;font-size:.8rem">Use o botão + para lançar férias, 13º, extras, INSS e outras receitas.</p></div>`
       : `<div class="card"><h2>${esc(pname(w))} · ${esc(mlabel(month))}</h2>
           <div class="sumline"><span>Contas que caem para ${esc(pname(w))}</span><b>${brl(pl.spent)}</b></div>
-          <p class="muted" style="margin:6px 0 0">O salário de ${esc(pname(w))} não está sendo acompanhado. Ative em Ajustes → Salários para ver o saldo.</p></div>`;
+          <p class="muted" style="margin:6px 0 0">O salário de ${esc(pname(w))} não está sendo acompanhado (as receitas dele não entram no saldo). Ative em Ajustes → Salários para ver o saldo.</p></div>`;
     return head + pl.groups.map(g=>`<div class="card">
       <div class="payhead"><div><b>Salário ${esc(payLabel(g.pay).toLowerCase())}</b><div class="muted">recebe em ${dshort(g.date)}</div></div>
         ${pl.track?`<button class="amt" data-income="${w}|${g.pay.id}" aria-label="Alterar valor">${brl(g.amount)} ✎</button>`:''}</div>
+      ${g.extras.map(x=>`<div class="item" data-rec="${x.r.id}">
+        <div class="check on" style="background:var(--brand);border-color:var(--brand);cursor:default">+</div>
+        <div class="main"><div class="title">${esc(x.r.desc)}</div><div class="sub"><span class="chip fix">${esc(x.r.cat)}</span>entra em ${dshort(x.date)}${x.r.monthly?' · todo mês':''}</div>${x.r.obs?`<div class="obs">${esc(x.r.obs)}</div>`:''}</div>
+        <div class="val pos">+ ${brl(x.r.value)}</div></div>`).join('')}
       ${g.items.length?g.items.map(itemRowHTML).join(''):'<div class="empty" style="padding:14px">Nenhuma conta neste salário.</div>'}
       <div style="margin-top:8px">
         ${pl.track&&g.carry?`<div class="sumline"><span>Sobra do salário anterior</span><span class="${g.carry<0?'neg':''}">${brl(g.carry)}</span></div>`:''}
         ${pl.track?`<div class="sumline"><span>Salário</span><span>${brl(g.amount)}</span></div>`:''}
+        ${pl.track&&g.extra?`<div class="sumline"><span>Outras receitas</span><span class="pos">+ ${brl(g.extra)}</span></div>`:''}
         <div class="sumline"><span>Contas</span><span>− ${brl(g.total)}</span></div>
         <div class="sumline muted"><span>Falta pagar</span><span>${brl(g.open)}</span></div>
         ${pl.track?`<div class="sumline total"><span>Saldo</span><span class="${g.saldo<0?'neg':'pos'}">${brl(g.saldo)}</span></div>`:''}
         ${pl.track&&g.saldo<0?`<div class="warn">⚠ Faltam ${brl(-g.saldo)} neste salário.</div>`:''}
       </div></div>`).join('');
-  }).join('') + `<p class="muted" style="text-align:center;font-size:.8rem">Aparecem aqui as contas pagas com os salários recebidos em ${esc(mlabel(month).toLowerCase())}, mesmo que vençam no começo do mês seguinte.</p>`;
+  }).join('') + orphanHTML + `<p class="muted" style="text-align:center;font-size:.8rem">Aparecem aqui as contas pagas com os salários recebidos em ${esc(mlabel(month).toLowerCase())}, mesmo que vençam no começo do mês seguinte.</p>`;
 }
 
 function faturaHTML(c,v){
@@ -746,6 +764,38 @@ function formCompra(o){
   });
 }
 
+function formReceita(o){
+  const isNew=!o;
+  o=o||{desc:'',cat:'Extra',value:'',who:'p1',date:defaultDate(),monthly:false,end:null,obs:''};
+  db.incomeCats=db.incomeCats||[...DEFAULT.incomeCats];
+  openSheet(`<h3>${isNew?'Nova receita':'Editar receita'}</h3>
+    <label class="f">Nome<input id="desc" value="${esc(o.desc)}" placeholder="Ex.: Férias, 1ª parcela do 13º, Freela"></label>
+    <div class="f2"><label class="f">Valor (R$)<input id="value" inputmode="decimal" value="${fmtIn(o.value)}" placeholder="0,00"></label>
+      <label class="f">Categoria<select id="cat" data-list="incomeCats">${opts(db.incomeCats,o.cat,'+ Nova categoria…')}</select></label></div>
+    <label class="f">De quem é a receita${pickHTML('who',o.who)}</label>
+    <label class="f">Data em que entra<input id="date" type="date" value="${esc(o.date)}"></label>
+    <label class="f" style="display:flex;gap:8px;align-items:center;color:var(--ink);font-weight:500"><input type="checkbox" id="monthly" ${o.monthly?'checked':''} style="width:auto;margin:0"> Repete todo mês nesse dia (ex.: INSS)</label>
+    <div id="endBox"><label class="f">Termina em (opcional)<input id="end" type="month" value="${esc(o.end||'')}"></label></div>
+    <label class="f">Observação<input id="obs" value="${esc(o.obs||'')}" placeholder="Opcional"></label>
+    <p class="hint">A receita entra no saldo do salário recebido antes dela no mesmo mês, na aba Salários.</p>
+    <div class="actions">${isNew?'':'<button class="btn danger" id="del">Excluir</button>'}<button class="btn" id="cancel">Cancelar</button><button class="btn primary" id="ok">Salvar</button></div>`,
+  (ov,close)=>{
+    const $=id=>ov.querySelector('#'+id);
+    const syncEnd=()=>{ $('endBox').style.display=$('monthly').checked?'':'none'; }; $('monthly').addEventListener('change',syncEnd); syncEnd();
+    $('cancel').onclick=close;
+    if($('del')) $('del').onclick=()=>{ if(!confirm('Excluir esta receita?')) return;
+      db.receitas.splice(db.receitas.findIndex(x=>x.id===o.id),1); delItem('receitas',o.id); close(); render(); };
+    $('ok').onclick=()=>{
+      const desc=$('desc').value.trim(), value=num($('value').value), date=$('date').value;
+      if(!desc||!value||!date){ toast('Preencha nome, valor e data'); return; }
+      Object.assign(o,{desc,value,date,cat:$('cat').value,who:ov.querySelector('[data-pick=who]').dataset.val,monthly:$('monthly').checked,end:$('monthly').checked?($('end').value||null):null,obs:$('obs').value.trim()});
+      if(isNew){ o.id=uid(); db.receitas=db.receitas||[]; db.receitas.push(o); }
+      putItem('receitas',o); close(); render();
+    };
+    if(isNew) setTimeout(()=>$('desc').focus(),50);
+  });
+}
+
 function formCartao(name){
   db.cardInfo=db.cardInfo||{}; const ci=db.cardInfo[name]||{}, pay=ci.pay||{};
   const rel=(w)=>{ const pays=paysOf(w); if(!pays.length) return `<option value="">Cadastre os salários de ${esc(pname(w))}</option>`;
@@ -773,12 +823,13 @@ function formCartao(name){
 document.getElementById('prev').onclick=()=>{ month=madd(month,-1); render(); };
 document.getElementById('next').onclick=()=>{ month=madd(month,1); render(); };
 document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; render(); window.scrollTo(0,0); });
-document.getElementById('fab').onclick=()=>{ tab==='cartao'?formCompra():formConta(fContas.type==='fix'?'fix':'var'); };
+document.getElementById('fab').onclick=()=>{ tab==='cartao'?formCompra():tab==='salarios'?formReceita():formConta(fContas.type==='fix'?'fix':'var'); };
 view.addEventListener('click',e=>{
-  const t=e.target.closest('[data-income],[data-goto],[data-cardcfg],[data-cpay],[data-pay],[data-edit],[data-type],[data-who],[data-cwho],[data-ccard],[data-call],[data-delcat],[data-delcard]');
+  const t=e.target.closest('[data-rec],[data-income],[data-goto],[data-cardcfg],[data-cpay],[data-pay],[data-edit],[data-type],[data-who],[data-cwho],[data-ccard],[data-call],[data-delcat],[data-delcard]');
   if(!t) return;
   const d=t.dataset;
   const pm=d.pm||month;
+  if(d.rec){ formReceita(db.receitas.find(x=>x.id===d.rec)); return; }
   if(d.goto){ tab=d.goto; render(); window.scrollTo(0,0); return; }
   if(d.cardcfg!==undefined){ formCartao(d.cardcfg); return; }
   if(d.income){ const [w,id]=d.income.split('|'), pay=paysOf(w).find(x=>x.id===id); if(!pay) return;
