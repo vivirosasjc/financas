@@ -1,6 +1,6 @@
 // Guarda o app no aparelho para abrir sem internet.
 // Ao publicar uma versão nova do index.html, aumente o número abaixo.
-const CACHE = 'financas-v8';
+const CACHE = 'financas-v9';
 const FILES = ['./', './index.html', './manifest.json',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png'];
 
