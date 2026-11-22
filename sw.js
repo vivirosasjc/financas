@@ -1,6 +1,6 @@
 // Guarda o app no aparelho para abrir sem internet.
 // Ao publicar uma versão nova do index.html, aumente o número abaixo.
-const CACHE = 'financas-v10';
+const CACHE = 'financas-v11';
 const FILES = ['./', './index.html', './manifest.json',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png'];
 
@@ -14,13 +14,14 @@ self.addEventListener('activate', e => {
     .then(() => self.clients.claim()));
 });
 
-// Só guarda os arquivos do próprio app e as bibliotecas do Firebase (gstatic).
+// Só guarda os arquivos do próprio app, as bibliotecas do Firebase e a fonte Inter.
 // A sincronização e o login falam direto com o Google, sem passar por aqui.
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   const mine = url.origin === self.location.origin;
-  const lib = url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/');
+  const lib = (url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/'))
+    || url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
   if (!mine && !lib) return;
   e.respondWith(
     fetch(e.request).then(r => {

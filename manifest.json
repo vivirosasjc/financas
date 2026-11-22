@@ -1,17 +1,30 @@
 {
-  "name": "Finanças da casa",
+  "name": "Minhas Finanças",
   "short_name": "Finanças",
-  "description": "Contas fixas, variáveis e cartão de crédito, separadas por pessoa.",
+  "description": "Planeje, controle e conquiste: contas, cartões, salários e caixinhas.",
   "lang": "pt-BR",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#f5f4f0",
-  "theme_color": "#1f6f5c",
+  "background_color": "#F7F8F5",
+  "theme_color": "#207D69",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
