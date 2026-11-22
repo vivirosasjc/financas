@@ -39,6 +39,8 @@
   nav.tabs button{flex:1;border:0;background:none;padding:10px 0 8px;font-size:.7rem;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
   nav.tabs button .ico{width:24px;height:24px}
   nav.tabs button.on{color:var(--brand);font-weight:600}
+  .fab.wide{width:auto;height:56px;border-radius:28px;padding:0 22px 0 18px;font-size:1.05rem;font-weight:700;display:flex;align-items:center;gap:6px}
+  .fab.wide b{font-size:1.6rem;font-weight:400;line-height:1}
   .fab{position:fixed;right:18px;bottom:calc(76px + var(--safe-b));z-index:7;width:56px;height:56px;border-radius:50%;border:0;background:var(--brand);color:#fff;font-size:1.8rem;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer}
   .card{background:var(--card);border-radius:var(--radius);padding:16px;margin-bottom:12px;box-shadow:var(--shadow);border:1px solid var(--line)}
   .card h2{margin:0 0 10px;font-size:1rem;font-weight:600;display:flex;align-items:center;gap:8px}
@@ -245,7 +247,7 @@ async function wipeAll(){
 }
 
 /* ---------- Sincronização ---------- */
-let unsubs=[], rTimer=null, gotConfig=false;
+let unsubs=[], rTimer=null, gotConfig=false, quickDone=false;
 // Não redesenha a tela enquanto a pessoa está digitando num campo; redesenha quando ela sai do campo.
 let renderPending=false;
 const typing=()=>{ const a=document.activeElement; return a && view && view.contains(a) && (a.tagName==='INPUT'||a.tagName==='SELECT'); };
@@ -260,6 +262,8 @@ function startSync(){
     if(d){ ['people','categories','cards','income','cardInfo','incomeCats','boxes','budget'].forEach(k=>{ if(d[k]) db[k]=d[k]; }); }
     else if(!s.metadata.fromCache){ putConfig(); }
     gotConfig=true; scheduleRender();
+    if(!quickDone && new URLSearchParams(location.search).get('nova')==='despesa'){ quickDone=true; history.replaceState(null,'',location.pathname);
+      setTimeout(()=>{ tab='resumo'; render(); formConta('var'); },120); }
   }, syncErr));
   COLS.forEach(c=>unsubs.push(onSnapshot(collection(casa,c), s=>{ db[c]=s.docs.map(d=>({...d.data(), id:d.id})); scheduleRender(); }, syncErr)));
   unsubs.push(onSnapshot(collection(casa,'income'), s=>{ db.incomeMonth=Object.fromEntries(s.docs.map(d=>[d.data().k,d.data().v])); scheduleRender(); }, syncErr));
@@ -557,7 +561,11 @@ const view = document.getElementById('view');
 function render(){
   document.getElementById('monthTitle').textContent = mlabel(month);
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
-  document.getElementById('fab').style.display = (tab==='contas'||tab==='cartao'||tab==='salarios') ? '' : 'none';
+  const fab=document.getElementById('fab');
+  fab.style.display = (tab==='resumo'||tab==='contas'||tab==='cartao'||tab==='salarios') ? '' : 'none';
+  fab.classList.toggle('wide', tab==='resumo');
+  fab.innerHTML = tab==='resumo' ? '<b>+</b> Despesa' : '+';
+  fab.setAttribute('aria-label', tab==='resumo' ? 'Adicionar despesa' : 'Adicionar');
   document.querySelector('header').style.display = tab==='config' ? 'none' : '';
   ({resumo:renderResumo, salarios:renderSalarios, contas:renderContas, cartao:renderCartao, config:renderConfig})[tab]();
 }
@@ -685,7 +693,7 @@ function renderResumo(){
     const sr=rows.find(r=>r.k===pSel);
     html+=`<div class="card"><h2>${icon('chart')}Receitas × despesas</h2>
       <div class="legend"><span><i style="background:var(--inc)"></i>Receitas</span><span><i style="background:var(--exp)"></i>Despesas</span></div>
-      ${chartSVG(rows)}
+      ${rows.some(r=>r.inc||r.exp)?chartSVG(rows):'<div class="empty" style="padding:20px">Ainda sem receitas ou despesas nesses meses. Cadastre seus salários em Ajustes e lance suas contas para ver o gráfico.</div>'}
       <div class="chartsel"><b>${esc(mlabel(sr.k))}</b><span>Receitas ${brl(sr.inc)} · Despesas ${brl(sr.exp)}</span>
         <span>Resultado <b class="${sr.res<0?'neg':'pos'}">${brl(sr.res)}</b>${sr.neg?' · ⚠ fica negativo em algum salário':''}</span></div>
       <p class="muted" style="margin:6px 0 0;font-size:.78rem">Toque num mês para ver os valores. Despesas = contas pagas com os salários daquele mês.</p></div>`;
@@ -965,7 +973,7 @@ function formConta(kind,o,dm){
   o=o||{desc:'',cat:db.categories[0],value:'',payer:'p1',day:'',date:defaultDate(),start:month,end:null};
   const paidNow = isNew ? '' : (kind==='fix' ? (o.paid&&o.paid[dm]) : o.paid);
   const wasPaid = !!paidNow;
-  openSheet(`<h3>${isNew?'Nova conta':'Editar conta'}</h3>
+  openSheet(`<h3 id="ftitle">${isNew?(kind==='var'?'Nova despesa':'Nova conta fixa'):'Editar conta'}</h3>
     <label class="f">Tipo<div class="pick" id="kind">
       <button type="button" data-v="fix" class="neutral ${kind==='fix'?'on':''}" ${isNew?'':'disabled'}>Fixa (todo mês)</button>
       <button type="button" data-v="var" class="neutral ${kind==='var'?'on':''}" ${isNew?'':'disabled'}>Variável</button></div></label>
@@ -1032,7 +1040,7 @@ function formConta(kind,o,dm){
     ['value','cn','date'].forEach(id=>$(id).addEventListener('input',credShow));
     $('cfirst').addEventListener('input',()=>{ firstTouched=true; credShow(); });
     $('ccard').addEventListener('change',()=>setTimeout(credShow,50));
-    const sync=()=>{ const k=kindPick.dataset.val; syncMethod(); $('paidLabel').textContent = k==='fix' ? 'Pago em (conta de '+mlabel(dm).toLowerCase()+')' : 'Pago em'; $('fixFields').style.display=k==='fix'?'':'none'; $('fixEnd').style.display=k==='fix'?'':'none'; $('fixMonth').style.display=k==='fix'?'':'none'; $('varFields').style.display=k==='var'?'':'none'; fillPay(); };
+    const sync=()=>{ const k=kindPick.dataset.val; syncMethod(); if(isNew) $('ftitle').textContent = k==='var'?'Nova despesa':'Nova conta fixa'; $('paidLabel').textContent = k==='fix' ? 'Pago em (conta de '+mlabel(dm).toLowerCase()+')' : 'Pago em'; $('fixFields').style.display=k==='fix'?'':'none'; $('fixEnd').style.display=k==='fix'?'':'none'; $('fixMonth').style.display=k==='fix'?'':'none'; $('varFields').style.display=k==='var'?'':'none'; fillPay(); };
     kindPick.addEventListener('click',()=>setTimeout(sync)); sync();
     $('cancel').onclick=close;
     if($('del')) $('del').onclick=()=>{ if(!confirm('Excluir esta conta?')) return;
@@ -1233,7 +1241,7 @@ function formCartao(name){
 document.getElementById('prev').onclick=()=>{ month=madd(month,-1); render(); };
 document.getElementById('next').onclick=()=>{ month=madd(month,1); render(); };
 document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; render(); window.scrollTo(0,0); });
-document.getElementById('fab').onclick=()=>{ tab==='cartao'?formCompra():tab==='salarios'?chooseAdd():formConta(fContas.type==='fix'?'fix':'var'); };
+document.getElementById('fab').onclick=()=>{ tab==='resumo'?formConta('var'):tab==='cartao'?formCompra():tab==='salarios'?chooseAdd():formConta(fContas.type==='fix'?'fix':'var'); };
 view.addEventListener('click',e=>{
   const t=e.target.closest('[data-budget],[data-sav],[data-box],[data-addsav],[data-delbox],[data-pmonth],[data-gomonth],[data-pwho],[data-pcat],[data-rec],[data-income],[data-goto],[data-cardcfg],[data-cpay],[data-pay],[data-edit],[data-type],[data-who],[data-cwho],[data-ccard],[data-call],[data-delcat],[data-delcard]');
   if(!t) return;
