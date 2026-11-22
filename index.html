@@ -113,6 +113,10 @@
   .mtable th:first-child,.mtable td:first-child{text-align:left}
   .mtable tr[data-gomonth]{cursor:pointer}
   .spend{border-left:5px solid var(--brand)} .spend.bad{border-left-color:var(--danger)}
+  .bbar{height:10px;border-radius:6px;background:var(--line);overflow:hidden;margin-top:6px}
+  .bbar i{display:block;height:100%;border-radius:6px}
+  .tag{display:inline-block;margin-top:10px;padding:6px 12px;border-radius:20px;font-size:.85rem;font-weight:600}
+  .tag.good{background:var(--brand-soft);color:var(--brand-dark)} .tag.mid{background:var(--alert-soft);color:var(--alert)} .tag.bad{background:var(--danger-soft);color:var(--danger)}
   .neg{color:var(--danger)!important}
   .ico{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
   .card h2 .ico{color:var(--brand);width:20px;height:20px}
@@ -184,6 +188,7 @@ const DEFAULT = {
   incomeCats: ['Salário','Férias','13º salário','Extra','INSS','Outros'],
   savings: [],  // {id, box, who, kind:'in'|'out', value, date, monthly, end, obs}
   boxes: ['Poupança','Caixinha Nubank','Cofrinho Mercado Pago'],
+  budget: {},   // {p1:{total:3200, cats:{'Mercado':800}}, p2:{...}} — orçamento mensal de gastos
   cardPaid: {}, // {'YYYY-MM|cartão|p1': 'data/hora'}
   // Recebimentos: rule 'day' = dia fixo do mês; 'bday' = Nº dia útil (seg–sex, sem feriados nacionais)
   income: {
@@ -198,7 +203,7 @@ const clean = o => JSON.parse(JSON.stringify(o));
 const cpId = k => encodeURIComponent(k).replace(/\./g,'%2E');
 function putItem(col,o){ setDoc(doc(casa,col,o.id), clean(o)).catch(writeErr); }
 function delItem(col,id){ deleteDoc(doc(casa,col,id)).catch(writeErr); }
-function putConfig(){ setDoc(casa, clean({people:db.people,categories:db.categories,cards:db.cards,income:db.income,cardInfo:db.cardInfo,incomeCats:db.incomeCats,boxes:db.boxes}), {merge:true}).catch(writeErr); }
+function putConfig(){ setDoc(casa, clean({people:db.people,categories:db.categories,cards:db.cards,income:db.income,cardInfo:db.cardInfo,incomeCats:db.incomeCats,boxes:db.boxes,budget:db.budget}), {merge:true}).catch(writeErr); }
 function setIncome(k,v){ const r=doc(casa,'income',cpId(k)); (v!=null?setDoc(r,{k,v}):deleteDoc(r)).catch(writeErr); }
 function setCardPaid(k,at){ const r=doc(casa,'cardPaid',cpId(k)); (at?setDoc(r,{k,at}):deleteDoc(r)).catch(writeErr); }
 function writeErr(e){ console.error(e); toast(e.code==='permission-denied'?'Sem permissão para salvar':'Erro ao salvar: '+(e.code||e.message)); }
@@ -216,7 +221,7 @@ async function importAll(d, replace){
     categories:replace?(d.categories||db.categories):[...new Set([...db.categories,...(d.categories||[])])],
     cards:replace?(d.cards||db.cards):[...new Set([...db.cards,...(d.cards||[])])],
     income:d.income||db.income, cardInfo:{...db.cardInfo,...(d.cardInfo||{})},
-    incomeCats:[...new Set([...(db.incomeCats||[]),...(d.incomeCats||[])])], boxes:[...new Set([...(db.boxes||[]),...(d.boxes||[])])] };
+    incomeCats:[...new Set([...(db.incomeCats||[]),...(d.incomeCats||[])])], boxes:[...new Set([...(db.boxes||[]),...(d.boxes||[])])], budget:d.budget||db.budget };
   ops.push([casa,clean(cfg)]);
   await bulk(ops);
 }
@@ -224,7 +229,7 @@ async function wipeAll(){
   const ops=[]; COLS.forEach(c=>db[c].forEach(o=>ops.push([doc(casa,c,o.id),null])));
   Object.keys(db.cardPaid).forEach(k=>ops.push([doc(casa,'cardPaid',cpId(k)),null]));
   Object.keys(db.incomeMonth).forEach(k=>ops.push([doc(casa,'income',cpId(k)),null]));
-  ops.push([casa,clean({people:DEFAULT.people,categories:DEFAULT.categories,cards:DEFAULT.cards,income:DEFAULT.income,cardInfo:{},incomeCats:DEFAULT.incomeCats,boxes:DEFAULT.boxes})]);
+  ops.push([casa,clean({people:DEFAULT.people,categories:DEFAULT.categories,cards:DEFAULT.cards,income:DEFAULT.income,cardInfo:{},incomeCats:DEFAULT.incomeCats,boxes:DEFAULT.boxes,budget:{}})]);
   await bulk(ops);
 }
 
@@ -241,7 +246,7 @@ function startSync(){
   stopSync();
   unsubs.push(onSnapshot(casa, s=>{
     const d=s.data();
-    if(d){ ['people','categories','cards','income','cardInfo','incomeCats','boxes'].forEach(k=>{ if(d[k]) db[k]=d[k]; }); }
+    if(d){ ['people','categories','cards','income','cardInfo','incomeCats','boxes','budget'].forEach(k=>{ if(d[k]) db[k]=d[k]; }); }
     else if(!s.metadata.fromCache){ putConfig(); }
     gotConfig=true; scheduleRender();
   }, syncErr));
@@ -341,7 +346,7 @@ function summary(k){
   return s;
 }
 
-const ICONS={"home": "<path d=\"M3 10.5 12 3l9 7.5\"/><path d=\"M5 9.5V21h14V9.5\"/><path d=\"M10 21v-6h4v6\"/>", "coins": "<ellipse cx=\"9\" cy=\"6\" rx=\"6\" ry=\"2.5\"/><path d=\"M3 6v4c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V6\"/><path d=\"M3 10v4c0 1.4 2.7 2.5 6 2.5\"/><ellipse cx=\"16\" cy=\"14\" rx=\"5\" ry=\"2.2\"/><path d=\"M11 14v4c0 1.2 2.2 2.2 5 2.2s5-1 5-2.2v-4\"/>", "calendar": "<rect x=\"3\" y=\"4.5\" width=\"18\" height=\"16\" rx=\"2.5\"/><path d=\"M3 9.5h18M8 3v3M16 3v3\"/><path d=\"M7.5 13.5h3M7.5 17h6\"/>", "card": "<rect x=\"2.5\" y=\"5\" width=\"19\" height=\"14\" rx=\"2.5\"/><path d=\"M2.5 10h19M6 15h4\"/>", "gear": "<circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6\"/><circle cx=\"12\" cy=\"12\" r=\"6.3\"/>", "chart": "<path d=\"M5 20v-8M10.5 20V5M16 20v-6M21.5 20h-19\"/>", "pie": "<path d=\"M21 12A9 9 0 1 1 12 3v9z\"/><path d=\"M15 3.5A9 9 0 0 1 20.5 9H15z\"/>", "bank": "<path d=\"M3 9.5 12 4l9 5.5\"/><path d=\"M5 10v8M9.5 10v8M14.5 10v8M19 10v8\"/><path d=\"M3 20.5h18\"/>", "bell": "<path d=\"M6 16v-5a6 6 0 1 1 12 0v5l1.5 2h-15z\"/><path d=\"M10 20.5a2 2 0 0 0 4 0\"/>", "wallet": "<rect x=\"3\" y=\"6\" width=\"18\" height=\"14\" rx=\"2.5\"/><path d=\"M16.5 11h4.5v4h-4.5a2 2 0 0 1 0-4z\"/><path d=\"M6 6l9.5-3 1 3\"/>", "trend": "<path d=\"M3 17l6-6 4 4 8-8\"/><path d=\"M15 7h6v6\"/>"};
+const ICONS={"home": "<path d=\"M3 10.5 12 3l9 7.5\"/><path d=\"M5 9.5V21h14V9.5\"/><path d=\"M10 21v-6h4v6\"/>", "coins": "<ellipse cx=\"9\" cy=\"6\" rx=\"6\" ry=\"2.5\"/><path d=\"M3 6v4c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V6\"/><path d=\"M3 10v4c0 1.4 2.7 2.5 6 2.5\"/><ellipse cx=\"16\" cy=\"14\" rx=\"5\" ry=\"2.2\"/><path d=\"M11 14v4c0 1.2 2.2 2.2 5 2.2s5-1 5-2.2v-4\"/>", "calendar": "<rect x=\"3\" y=\"4.5\" width=\"18\" height=\"16\" rx=\"2.5\"/><path d=\"M3 9.5h18M8 3v3M16 3v3\"/><path d=\"M7.5 13.5h3M7.5 17h6\"/>", "card": "<rect x=\"2.5\" y=\"5\" width=\"19\" height=\"14\" rx=\"2.5\"/><path d=\"M2.5 10h19M6 15h4\"/>", "gear": "<circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6\"/><circle cx=\"12\" cy=\"12\" r=\"6.3\"/>", "chart": "<path d=\"M5 20v-8M10.5 20V5M16 20v-6M21.5 20h-19\"/>", "pie": "<path d=\"M21 12A9 9 0 1 1 12 3v9z\"/><path d=\"M15 3.5A9 9 0 0 1 20.5 9H15z\"/>", "bank": "<path d=\"M3 9.5 12 4l9 5.5\"/><path d=\"M5 10v8M9.5 10v8M14.5 10v8M19 10v8\"/><path d=\"M3 20.5h18\"/>", "bell": "<path d=\"M6 16v-5a6 6 0 1 1 12 0v5l1.5 2h-15z\"/><path d=\"M10 20.5a2 2 0 0 0 4 0\"/>", "wallet": "<rect x=\"3\" y=\"6\" width=\"18\" height=\"14\" rx=\"2.5\"/><path d=\"M16.5 11h4.5v4h-4.5a2 2 0 0 1 0-4z\"/><path d=\"M6 6l9.5-3 1 3\"/>", "target": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><circle cx=\"12\" cy=\"12\" r=\"5\"/><circle cx=\"12\" cy=\"12\" r=\"1.5\"/>", "trend": "<path d=\"M3 17l6-6 4 4 8-8\"/><path d=\"M15 7h6v6\"/>"};
 const icon=n=>`<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</svg>`;
 /* ---------- Salários e vencimentos ---------- */
 const pad2 = n => String(n).padStart(2,'0');
@@ -528,6 +533,40 @@ function limitsHTML(list){
     <p class="muted" style="margin:6px 0 0;font-size:.78rem">Usado = parcelas das faturas deste mês em diante ainda não marcadas como pagas.</p></div>`;
 }
 
+function budgetOf(w){ return (db.budget&&db.budget[w])||{total:0,cats:{}}; }
+function budgetStatus(spent, lim){ if(!lim) return null; const pct=spent/lim*100;
+  return pct>100 ? {cls:'bad', label:'Passou do orçamento', icon:'⚠', pct} : pct>=80 ? {cls:'mid', label:'Atenção: perto do limite', icon:'!', pct} : {cls:'good', label:'Dentro do planejado', icon:'✓', pct}; }
+function budgetHTML(w, k){
+  const b=budgetOf(w), s=summary(k), me=s[w], spent=Math.round((me.fix+me.var+me.card)*100)/100;
+  const cats=Object.entries(b.cats||{}).filter(([c,v])=>v>0);
+  if(!b.total && !cats.length) return `<div class="card"><h2>${icon('target')}Orçamento do mês</h2>
+    <p class="muted" style="margin-top:0">Defina quanto ${w==='p1'?'você quer':esc(pname(w))+' quer'} gastar por mês, no total e por categoria, e acompanhe aqui.</p>
+    <button class="btn primary" style="width:100%" data-budget="${w}">Definir orçamento</button></div>`;
+  const st=budgetStatus(spent,b.total);
+  const bar=(v,L,st)=>`<div class="bbar"><i style="width:${Math.min(100,v/L*100)}%;background:${st&&st.cls==='bad'?'var(--danger)':st&&st.cls==='mid'?'var(--alert)':'var(--brand)'}"></i></div>`;
+  return `<div class="card"><h2>${icon('target')}Orçamento do mês<button class="link" style="margin:0 0 0 auto;font-size:.85rem" data-budget="${w}">editar</button></h2>
+    ${b.total?`<div class="row"><span><b>${brl(spent)}</b> <span class="muted">de ${brl(b.total)}</span></span><b>${Math.round(st.pct)}%</b></div>
+      ${bar(spent,b.total,st)}
+      <div class="tag ${st.cls}">${st.icon} ${st.label}${st.cls==='bad'?' em '+brl(spent-b.total):' · ainda pode gastar '+brl(b.total-spent)}</div>`:''}
+    ${cats.length?`<div style="margin-top:12px">${cats.map(([c,L])=>{ const v=(s.cats[c]&&s.cats[c][w])||0, cs=budgetStatus(v,L);
+      return `<div class="catrow"><div class="row"><span>${esc(c)}</span><span>${brl(v)} <span class="muted">/ ${brl(L)}</span> ${cs.cls==='bad'?'<span class="neg">⚠</span>':cs.cls==='mid'?'<span style="color:var(--alert)">!</span>':''}</span></div>${bar(v,L,cs)}</div>`; }).join('')}</div>`:''}
+    <p class="muted" style="margin:8px 0 0;font-size:.78rem">Conta os gastos de ${esc(pname(w))} lançados para ${esc(mlabel(k).toLowerCase())}: contas fixas, variáveis e parcelas do cartão.</p></div>`;
+}
+function formBudget(w){
+  const b=budgetOf(w);
+  openSheet(`<h3>Orçamento de ${esc(pname(w))}</h3>
+    <label class="f">Quanto quer gastar por mês, no total (R$)<input id="btotal" inputmode="decimal" value="${b.total?fmtIn(b.total):''}" placeholder="Ex.: 3.200,00"></label>
+    <p class="hint">Vale para todos os meses. Deixe vazio se quiser só limites por categoria.</p>
+    <h3 style="font-size:.95rem;margin:14px 0 8px">Limite por categoria (opcional)</h3>
+    ${db.categories.map((c,i)=>`<div class="payrow" style="grid-template-columns:1fr 120px"><span style="align-self:center">${esc(c)}</span>
+      <input data-bcat="${i}" inputmode="decimal" placeholder="—" value="${b.cats&&b.cats[c]?fmtIn(b.cats[c]):''}"></div>`).join('')}
+    <div class="actions" style="margin-top:12px">${b.total||Object.keys(b.cats||{}).length?'<button class="btn danger" id="del">Remover</button>':''}<button class="btn" id="cancel">Cancelar</button><button class="btn primary" id="ok">Salvar</button></div>`,
+  (ov,close)=>{ const $=id=>ov.querySelector('#'+id); $('cancel').onclick=close;
+    if($('del')) $('del').onclick=()=>{ if(!confirm('Remover o orçamento?')) return; db.budget=db.budget||{}; db.budget[w]={total:0,cats:{}}; putConfig(); close(); render(); };
+    $('ok').onclick=()=>{ const cats={}; ov.querySelectorAll('[data-bcat]').forEach(el=>{ const v=num(el.value); if(v) cats[db.categories[+el.dataset.bcat]]=v; });
+      db.budget=db.budget||{}; db.budget[w]={total:num($('btotal').value)||0,cats}; putConfig(); close(); render(); }; });
+}
+
 function renderResumo(){
   const tracked=['p1','p2'].filter(w=>tracks(w)&&paysOf(w).length);
   if(tracked.length && !tracked.includes(pWho)) pWho=tracked[0];
@@ -578,6 +617,8 @@ function renderResumo(){
       `${x.due<t?'<div class="sub neg" style="margin-top:6px">⚠ vencida</div>':''}${itemRowHTML(x).replace('<div class="sub">','<div class="sub"><span class="chip '+x.who+'">'+esc(pname(x.who))+'</span>')}`).join('')
     :'<div class="empty" style="padding:14px">Nada para pagar nos próximos 10 dias. 🎉</div>'}
     ${up.length?`<div class="sumline total"><span>Total</span><span>${brl(up.reduce((a,x)=>a+x.value,0))}</span></div>`:''}</div>`;
+  // orçamento
+  html+=budgetHTML(tracked.length?pWho:'p1', month);
   // caixinhas
   const boxes=(db.boxes||[]).map(b=>[b,boxBalance(b)]);
   html+=`<div class="card"><h2>${icon('bank')}Caixinhas</h2>${boxes.map(([b,v])=>`<div class="item" data-box="${esc(b)}"><div class="main"><div class="title" style="display:flex;gap:8px;align-items:center">${icon('bank')}${esc(b)}</div></div><div class="val">${brl(v)}</div></div>`).join('')}
@@ -1051,10 +1092,11 @@ document.getElementById('next').onclick=()=>{ month=madd(month,1); render(); };
 document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; render(); window.scrollTo(0,0); });
 document.getElementById('fab').onclick=()=>{ tab==='cartao'?formCompra():tab==='salarios'?chooseAdd():formConta(fContas.type==='fix'?'fix':'var'); };
 view.addEventListener('click',e=>{
-  const t=e.target.closest('[data-sav],[data-box],[data-addsav],[data-delbox],[data-pmonth],[data-gomonth],[data-pwho],[data-pcat],[data-rec],[data-income],[data-goto],[data-cardcfg],[data-cpay],[data-pay],[data-edit],[data-type],[data-who],[data-cwho],[data-ccard],[data-call],[data-delcat],[data-delcard]');
+  const t=e.target.closest('[data-budget],[data-sav],[data-box],[data-addsav],[data-delbox],[data-pmonth],[data-gomonth],[data-pwho],[data-pcat],[data-rec],[data-income],[data-goto],[data-cardcfg],[data-cpay],[data-pay],[data-edit],[data-type],[data-who],[data-cwho],[data-ccard],[data-call],[data-delcat],[data-delcard]');
   if(!t) return;
   const d=t.dataset;
   const pm=d.pm||month;
+  if(d.budget){ formBudget(d.budget); return; }
   if(d.sav){ formGuardar(db.savings.find(x=>x.id===d.sav)); return; }
   if(d.box){ boxHistory(d.box); return; }
   if(d.addsav){ formGuardar(null,d.addsav); return; }
