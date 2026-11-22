@@ -79,7 +79,7 @@
   .btn{flex:1;border:1.5px solid var(--brand);border-radius:12px;padding:12px;font-weight:600;cursor:pointer;background:var(--card);color:var(--brand)}
   .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
   .btn.danger{background:none;color:var(--danger);border-color:var(--danger)}
-  .pick{display:flex;gap:8px;margin-top:4px}
+  .pick{display:flex;gap:8px;margin-top:4px;flex-wrap:wrap}
   .pick button{flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);cursor:pointer;font-weight:600}
   .pick button.on.p1{background:var(--p1-soft);border-color:var(--p1);color:var(--p1)}
   .pick button.on.p2{background:var(--p2-soft);border-color:var(--p2);color:var(--p2)}
@@ -724,7 +724,7 @@ function renderContas(){
       <div class="item" data-edit="${i.kind}:${o.id}">
         <button class="check ${i.paid?'on':''}" data-pay="${i.kind}:${o.id}" aria-label="Marcar como pago">${i.paid?'✓':''}</button>
         <div class="main"><div class="title">${esc(o.desc)}</div>
-          <div class="sub"><span class="chip ${i.kind}">${i.kind==='fix'?'Fixa':'Variável'}</span><span class="chip ${o.payer}">${esc(pname(o.payer))}</span>${esc(o.cat)}</div>${(()=>{ const r=resolvePay(o.payer,o.payWith,i.due); return r?`<div class="sub">💰 salário de ${dshort(r.date)}</div>`:''; })()}${paidLine(i.paid)}${o.obs?`<div class="obs">${esc(o.obs)}</div>`:''}</div>
+          <div class="sub"><span class="chip ${i.kind}">${i.kind==='fix'?'Fixa':'Variável'}</span><span class="chip ${o.payer}">${esc(pname(o.payer))}</span>${esc(o.cat)}${o.method?' · '+METH[o.method]:''}</div>${(()=>{ const r=resolvePay(o.payer,o.payWith,i.due); return r?`<div class="sub">💰 salário de ${dshort(r.date)}</div>`:''; })()}${paidLine(i.paid)}${o.obs?`<div class="obs">${esc(o.obs)}</div>`:''}</div>
         <div class="val">${brl(i.val)}<small>${i.kind==='fix'?(o.day?'vence dia '+o.day:''):'vence '+dshort(i.due)}</small>${i.kind==='fix'&&i.val!==o.value?'<small>valor do mês</small>':''}</div>
       </div>`}).join(''):'<div class="empty">Nenhuma conta neste mês. Toque em + para adicionar.</div>'}</div>`;
 }
@@ -859,6 +859,13 @@ function openSheet(html,onMount){
 const today = () => { const d=new Date(); return mkey(d)+'-'+String(d.getDate()).padStart(2,'0'); };
 function defaultDate(){ return month===mkey(new Date()) ? today() : month+'-01'; }
 
+const METH={dinheiro:'Dinheiro',debito:'Débito',pix:'Pix',credito:'Crédito'};
+// Fatura em que cai a 1ª parcela: considera o fechamento ~7 dias antes do vencimento do cartão
+function suggestFirst(card, date){
+  let M=date.slice(0,7);
+  for(let i=0;i<3;i++){ const close=addDays(dueCard(card,M),-7); if(date<close) return M; M=madd(M,1); }
+  return M;
+}
 function formConta(kind,o,dm){
   const isNew=!o; kind=kind||'var'; dm=dm||month;
   o=o||{desc:'',cat:db.categories[0],value:'',payer:'p1',day:'',date:defaultDate(),start:month,end:null};
@@ -872,17 +879,27 @@ function formConta(kind,o,dm){
     <div class="f2"><label class="f">Valor (R$)<input id="value" inputmode="decimal" value="${fmtIn(o.value)}" placeholder="0,00"></label>
       <label class="f">Categoria<select id="cat" data-list="categories">${opts(db.categories,o.cat,'+ Nova categoria…')}</select></label></div>
     <label class="f">Quem paga${pickHTML('payer',o.payer)}</label>
+    <div id="methodBox"><label class="f">Forma de pagamento<div class="pick" id="method">
+      ${Object.entries(METH).map(([v,l])=>`<button type="button" data-v="${v}" class="neutral ${o.method===v?'on':''}">${l}</button>`).join('')}</div></label></div>
+    <div id="creditBox">
+      <div class="f2"><label class="f">Cartão<select id="ccard" data-list="cards">${opts(db.cards,db.cards[0],'+ Novo cartão…')}</select></label>
+        <label class="f">Parcelas<input id="cn" type="number" min="1" max="72" inputmode="numeric" value="1"></label></div>
+      <label class="f">1ª parcela na fatura de<input id="cfirst" type="month"></label>
+      <p class="hint" id="cHint"></p>
+    </div>
     <div id="fixFields" class="f2"><label class="f">Dia do vencimento<input id="day" type="number" min="1" max="31" inputmode="numeric" value="${esc(o.day)}"></label>
       <label class="f">Começa em<input id="start" type="month" value="${esc(o.start||month)}"></label></div>
     <div id="fixMonth"><label class="f">Valor só em ${esc(mlabel(dm).toLowerCase())} (opcional)<input id="valMonth" inputmode="decimal" value="${o.values&&o.values[dm]!=null?fmtIn(o.values[dm]):''}" placeholder="Igual ao valor acima"></label>
       <p class="hint">Para contas que mudam todo mês (água, luz, condomínio): deixe o valor de costume acima e informe aqui o valor deste mês.</p></div>
     <div id="fixEnd"><label class="f">Termina em (opcional)<input id="end" type="month" value="${esc(o.end||'')}"></label><p class="hint">Deixe vazio se a conta continua. Preencha quando ela acabar, para não sumir do histórico.</p></div>
     <div id="varFields" class="f2"><label class="f">Data da despesa<input id="date" type="date" value="${esc(o.date||defaultDate())}"></label>
-      <label class="f">Pagar até<input id="due" type="date" value="${esc(o.due||o.date||defaultDate())}"></label></div>
+      <label class="f" id="dueWrap">Pagar até<input id="due" type="date" value="${esc(o.due||o.date||defaultDate())}"></label></div>
+    <div id="payBox">
     <label class="f">Pagar com o salário<select id="payWith"></select></label>
     <p class="hint" id="payHint"></p>
     <label class="f"><span id="paidLabel">Pago em</span><input id="paidAt" type="datetime-local" value="${esc(typeof paidNow==='string'&&paidNow.includes('T')?paidNow:'')}"></label>
-    <p class="hint">Vazio = ainda não pago. Ao tocar no círculo da lista, a data e a hora entram sozinhas; aqui você pode corrigir.</p>
+    <p class="hint" id="paidHint">Vazio = ainda não pago. Ao tocar no círculo da lista, a data e a hora entram sozinhas; aqui você pode corrigir.</p>
+    </div>
     <label class="f">Observação<input id="obs" value="${esc(o.obs||'')}" placeholder="Opcional"></label>
     <div class="actions">${isNew?'':'<button class="btn danger" id="del">Excluir</button>'}<button class="btn" id="cancel">Cancelar</button><button class="btn primary" id="ok">Salvar</button></div>`,
   (ov,close)=>{
@@ -900,7 +917,28 @@ function formConta(kind,o,dm){
     $('day').addEventListener('input',fillPay);
     $('due').addEventListener('input',()=>{ dueTouched=true; fillPay(); });
     $('date').addEventListener('input',()=>{ if(!dueTouched) $('due').value=$('date').value; fillPay(); });
-    const sync=()=>{ const k=kindPick.dataset.val; $('paidLabel').textContent = k==='fix' ? 'Pago em (conta de '+mlabel(dm).toLowerCase()+')' : 'Pago em'; $('fixFields').style.display=k==='fix'?'':'none'; $('fixEnd').style.display=k==='fix'?'':'none'; $('fixMonth').style.display=k==='fix'?'':'none'; $('varFields').style.display=k==='var'?'':'none'; fillPay(); };
+    const mPick=$('method'); { const on=mPick.querySelector('.on'); if(on) mPick.dataset.val=on.dataset.v; }
+    const isCredit=()=>kindPick.dataset.val==='var' && mPick.dataset.val==='credito';
+    let firstTouched=false;
+    const cN=()=>Math.max(1,Math.min(72,parseInt($('cn').value)||1));
+    const credInfo=()=>{ const c=$('ccard').value, value=num($('value').value), n=cN(), inst=Math.round(value/n*100)/100, f=$('cfirst').value||suggestFirst(c,$('date').value||defaultDate());
+      const L=cardLimit(c), M0=today().slice(0,7); let add=0; for(let i=0;i<n;i++){ if(mdiff(M0,madd(f,i))>=0) add+=inst; }
+      return {c,value,n,inst,f,L,free:L?L-limitUsed(c):null,add}; };
+    const credShow=()=>{ if(!isCredit()) return; const ci=credInfo(), h=$('cHint');
+      if(!firstTouched) $('cfirst').value=suggestFirst(ci.c,$('date').value||defaultDate());
+      let t=ci.value?`${ci.n}× de ${brl(ci.inst)} · 1ª parcela na fatura de ${mlabel(ci.f).toLowerCase()} (vence ${dshort(dueCard(ci.c,ci.f))})`:'Informe o valor para ver as parcelas.';
+      if(ci.L){ const over=ci.add>ci.free; t+=` · Limite disponível: ${brl(ci.free)}`+(ci.add?` → depois: ${brl(ci.free-ci.add)}`:''); h.classList.toggle('neg',over); if(over) t='⚠ Passa do limite! '+t; } else h.classList.remove('neg');
+      h.textContent=t; };
+    const syncMethod=()=>{ const v=kindPick.dataset.val==='var', cr=isCredit();
+      $('methodBox').style.display=v?'':'none'; $('creditBox').style.display=cr?'':'none';
+      $('payBox').style.display=cr?'none':''; $('dueWrap').style.display=cr?'none':'';
+      const m=mPick.dataset.val; $('paidHint').textContent = (v && isNew && ['dinheiro','debito','pix'].includes(m)) ? 'Pago na hora com '+METH[m].toLowerCase()+': se deixar vazio, fica marcado como pago na data da despesa.' : 'Vazio = ainda não pago. Ao tocar no círculo da lista, a data e a hora entram sozinhas; aqui você pode corrigir.';
+      credShow(); };
+    mPick.addEventListener('click',()=>setTimeout(syncMethod));
+    ['value','cn','date'].forEach(id=>$(id).addEventListener('input',credShow));
+    $('cfirst').addEventListener('input',()=>{ firstTouched=true; credShow(); });
+    $('ccard').addEventListener('change',()=>setTimeout(credShow,50));
+    const sync=()=>{ const k=kindPick.dataset.val; syncMethod(); $('paidLabel').textContent = k==='fix' ? 'Pago em (conta de '+mlabel(dm).toLowerCase()+')' : 'Pago em'; $('fixFields').style.display=k==='fix'?'':'none'; $('fixEnd').style.display=k==='fix'?'':'none'; $('fixMonth').style.display=k==='fix'?'':'none'; $('varFields').style.display=k==='var'?'':'none'; fillPay(); };
     kindPick.addEventListener('click',()=>setTimeout(sync)); sync();
     $('cancel').onclick=close;
     if($('del')) $('del').onclick=()=>{ if(!confirm('Excluir esta conta?')) return;
@@ -908,6 +946,14 @@ function formConta(kind,o,dm){
     $('ok').onclick=()=>{
       const k=kindPick.dataset.val, desc=$('desc').value.trim(), value=num($('value').value);
       if(!desc||!value){ toast('Preencha descrição e valor'); return; }
+      if(isCredit()){ // vira compra no cartão: entra na fatura e usa o limite
+        const ci=credInfo(); if(!ci.c||ci.c==='__new__'){ toast('Escolha o cartão'); return; }
+        if(ci.L && ci.add>ci.free && !confirm('Esta compra passa do limite disponível do cartão ('+brl(ci.free)+'). Salvar mesmo assim?')) return;
+        const pc={id:uid(),date:$('date').value||defaultDate(),card:ci.c,desc,cat:$('cat').value,owner:curPayer(),n:ci.n,inst:ci.inst,first:ci.f,obs:$('obs').value.trim()};
+        if(!isNew){ db.variable.splice(db.variable.findIndex(x=>x.id===o.id),1); delItem('variable',o.id); }
+        db.purchases.push(pc); putItem('purchases',pc);
+        toast(`Lançado no ${ci.c}${ci.n>1?' em '+ci.n+'×':''} (aba Cartão)`); close(); render(); return;
+      }
       const pwv=$('payWith').value.split('|');
       const base={desc,value,cat:$('cat').value,payer:curPayer(),obs:$('obs').value.trim(),payWith:pwv[0]?{pd:pwv[0],off:+pwv[1]}:null};
       const pv=$('paidAt').value, paidVal = pv || (wasPaid && paidNow===true ? true : '');
@@ -917,9 +963,12 @@ function formConta(kind,o,dm){
         o.paid=o.paid||{}; if(paidVal) o.paid[dm]=paidVal; else delete o.paid[dm];
         const vm=$('valMonth').value.trim(); o.values=o.values||{}; if(vm && num(vm)!==o.value) o.values[dm]=num(vm); else delete o.values[dm];
       } else {
-        Object.assign(o,base,{date:$('date').value||defaultDate(),due:$('due').value||$('date').value||defaultDate()});
+        const m=mPick.dataset.val||null;
+        Object.assign(o,base,{date:$('date').value||defaultDate(),due:$('due').value||$('date').value||defaultDate(),method:m});
+        let pval=paidVal;
+        if(isNew && !pv && ['dinheiro','debito','pix'].includes(m)){ const d=new Date(); pval=o.date+'T'+pad2(d.getHours())+':'+pad2(d.getMinutes()); }
         if(isNew){ o.id=uid(); db.variable.push(o); }
-        o.paid = paidVal || false;
+        o.paid = pval || false;
       }
       putItem(k==='fix'?'fixed':'variable', o); close(); render();
     };
