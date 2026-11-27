@@ -129,6 +129,14 @@
   .keypad button{height:72px;border-radius:50%;border:1px solid var(--line);background:var(--card);font-size:1.6rem;font-weight:600;color:var(--ink);cursor:pointer;box-shadow:var(--shadow)}
   .keypad button.ghost{background:none;border:0;box-shadow:none;font-size:1rem;color:var(--brand)}
   .shake{animation:shake .35s} @keyframes shake{25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .cwd{text-align:center;font-size:.75rem;color:var(--muted);font-weight:600;padding:2px 0}
+  .cday{position:relative;aspect-ratio:1;border:0;border-radius:12px;background:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:.95rem;color:var(--ink);padding:0}
+  .cday.today span{background:var(--brand-soft);color:var(--brand-dark);font-weight:700;border-radius:50%;width:28px;height:28px;display:grid;place-items:center}
+  .cday.sel{outline:2px solid var(--brand);outline-offset:-2px}
+  .cdot{min-width:8px;height:8px;border-radius:8px;display:block;font-style:normal;font-size:.62rem;line-height:14px;color:#fff;font-weight:700;padding:0}
+  .cdot:not(:empty){height:14px;padding:0 4px}
+  .cdot.late{background:var(--danger)} .cdot.open{background:var(--alert)} .cdot.paid{background:var(--brand)}
   .neg{color:var(--danger)!important}
   .ico{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
   .card h2 .ico{color:var(--brand);width:20px;height:20px}
@@ -805,25 +813,69 @@ function faturaHTML(c,v){
 }
 function segHTML(opts,cur,attr){ return `<div class="seg">${opts.map(([v,l])=>`<button data-${attr}="${esc(v)}" class="${v===cur?'on':''}">${esc(l)}</button>`).join('')}</div>`; }
 
+// Tudo o que vence no mês M (pela data de vencimento): fixas, variáveis e faturas dos cartões
+function dueItems(M){
+  const out=[];
+  fixedIn(M).forEach(f=>out.push({kind:'fix',o:f,who:f.payer,D:M,due:dueFixed(f,M),value:fixedValue(f,M),paid:f.paid&&f.paid[M],desc:f.desc}));
+  db.variable.forEach(v=>{ const due=dueVar(v); if(due&&due.slice(0,7)===M) out.push({kind:'var',o:v,who:v.payer,D:M,due,value:v.value,paid:v.paid,desc:v.desc}); });
+  const fat={}; purchasesIn(M).forEach(p=>{ const k=p.card+'|'+p.owner; (fat[k]=fat[k]||{card:p.card,who:p.owner,value:0,n:0}); fat[k].value+=p.inst; fat[k].n++; });
+  Object.values(fat).forEach(x=>out.push({kind:'card',card:x.card,who:x.who,D:M,due:dueCard(x.card,M),value:Math.round(x.value*100)/100,n:x.n,paid:db.cardPaid[cpKey(M,x.card,x.who)],desc:'Fatura '+x.card}));
+  return out.sort((a,b)=>a.due.localeCompare(b.due)||a.desc.localeCompare(b.desc));
+}
+let cView='list', calSel=null;
+function dueStatus(x,t){ return x.paid?'paid':(x.due<t?'late':'open'); }
+function contaRowHTML(x){
+  const t=today(), st=dueStatus(x,t), o=x.o;
+  const chip = x.kind==='fix'?'<span class="chip fix">Fixa</span>':x.kind==='var'?'<span class="chip var">Variável</span>':'<span class="chip card">Cartão</span>';
+  const check = x.kind==='card'
+    ? `<button class="check ${x.paid?'on':''}" data-cpay="${esc(x.card)}|${x.who}" data-pm="${x.D}" aria-label="Marcar como pago">${x.paid?'✓':''}</button>`
+    : `<button class="check ${x.paid?'on':''}" data-pay="${x.kind}:${o.id}" data-pm="${x.D}" aria-label="Marcar como pago">${x.paid?'✓':''}</button>`;
+  const pay = x.kind==='card' ? (()=>{ const ci=db.cardInfo[x.card]||{}, r=resolvePay(x.who,ci.pay&&ci.pay[x.who],x.due); return r?`<div class="sub">salário de ${dshort(r.date)}</div>`:''; })()
+    : (()=>{ const r=resolvePay(o.payer,o.payWith,x.due); return r?`<div class="sub">salário de ${dshort(r.date)}</div>`:''; })();
+  const detail = x.kind==='card' ? `${x.n} parcela${x.n>1?'s':''}` : esc(o.cat)+(o.method?' · '+METH[o.method]:'');
+  return `<div class="item" ${x.kind==='card'?'data-goto="cartao"':`data-edit="${x.kind}:${o.id}" data-pm="${x.D}"`}>
+    ${check}
+    <div class="main"><div class="title">${esc(x.desc)}</div>
+      <div class="sub">${chip}<span class="chip ${x.who}">${esc(pname(x.who))}</span>${detail}</div>${pay}${paidLine(x.paid)}${o&&o.obs?`<div class="obs">${esc(o.obs)}</div>`:''}</div>
+    <div class="val">${brl(x.value)}<small class="${st==='late'?'neg':''}">${st==='late'?'⚠ venceu ':'vence '}${dshort(x.due)}</small>${x.kind==='fix'&&x.value!==o.value?'<small>valor do mês</small>':''}</div></div>`;
+}
+const WD=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+const dayLabel=d=>{ const [y,m,dd]=d.split('-').map(Number); const w=new Date(y,m-1,dd).getDay(); return WD[w]+', '+dshort(d); };
 function renderContas(){
-  let items=[
-    ...fixedIn(month).map(f=>({kind:'fix',o:f,val:fixedValue(f,month),paid:f.paid&&f.paid[month],sort:f.day||0,due:dueFixed(f,month)})),
-    ...variableIn(month).map(v=>({kind:'var',o:v,val:v.value,paid:v.paid,sort:+v.date.slice(8,10),due:dueVar(v)}))
-  ];
+  const t=today();
+  let items=dueItems(month);
   if(fContas.type!=='all') items=items.filter(i=>i.kind===fContas.type);
-  if(fContas.who!=='all') items=items.filter(i=>i.o.payer===fContas.who);
-  items.sort((a,b)=>a.sort-b.sort);
-  const total=items.reduce((a,i)=>a+i.val,0), open=items.filter(i=>!i.paid).reduce((a,i)=>a+i.val,0);
-  view.innerHTML = segHTML([['all','Todas'],['fix','Fixas'],['var','Variáveis']],fContas.type,'type')
+  if(fContas.who!=='all') items=items.filter(i=>i.who===fContas.who);
+  const total=items.reduce((a,i)=>a+i.value,0), paid=items.filter(i=>i.paid).reduce((a,i)=>a+i.value,0);
+  const late=items.filter(i=>dueStatus(i,t)==='late');
+  let html = segHTML([['list','Lista'],['cal','Calendário']],cView,'cview')
+    + segHTML([['all','Todas'],['fix','Fixas'],['var','Variáveis'],['card','Cartões']],fContas.type,'type')
     + segHTML([['all','Todos'],['p1',pname('p1')],['p2',pname('p2')]],fContas.who,'who')
-    + `<div class="card"><div class="row"><span class="muted">Total</span><b>${brl(total)}</b></div><div class="row"><span class="muted">Falta pagar</span><b>${brl(open)}</b></div></div>`
-    + `<div class="card">${items.length?items.map(i=>{const o=i.o;return `
-      <div class="item" data-edit="${i.kind}:${o.id}">
-        <button class="check ${i.paid?'on':''}" data-pay="${i.kind}:${o.id}" aria-label="Marcar como pago">${i.paid?'✓':''}</button>
-        <div class="main"><div class="title">${esc(o.desc)}</div>
-          <div class="sub"><span class="chip ${i.kind}">${i.kind==='fix'?'Fixa':'Variável'}</span><span class="chip ${o.payer}">${esc(pname(o.payer))}</span>${esc(o.cat)}${o.method?' · '+METH[o.method]:''}</div>${(()=>{ const r=resolvePay(o.payer,o.payWith,i.due); return r?`<div class="sub">💰 salário de ${dshort(r.date)}</div>`:''; })()}${paidLine(i.paid)}${o.obs?`<div class="obs">${esc(o.obs)}</div>`:''}</div>
-        <div class="val">${brl(i.val)}<small>${i.kind==='fix'?(o.day?'vence dia '+o.day:''):'vence '+dshort(i.due)}</small>${i.kind==='fix'&&i.val!==o.value?'<small>valor do mês</small>':''}</div>
-      </div>`}).join(''):'<div class="empty">Nenhuma conta neste mês. Toque em + para adicionar.</div>'}</div>`;
+    + `<div class="card"><div class="sumline"><span>Total do mês</span><b>${brl(total)}</b></div>
+        <div class="sumline"><span>Já pago</span><span class="pos">${brl(paid)}</span></div>
+        <div class="sumline total"><span>Falta pagar</span><span>${brl(total-paid)}</span></div>
+        ${late.length?`<div class="warn">⚠ ${late.length} conta${late.length>1?'s':''} vencida${late.length>1?'s':''} sem pagamento (${brl(late.reduce((a,i)=>a+i.value,0))}).</div>`:''}
+        ${total?`<div class="bbar"><i style="width:${paid/total*100}%;background:var(--brand)"></i></div>`:''}</div>`;
+  if(cView==='list'){
+    if(!items.length) html+='<div class="card"><div class="empty">Nenhuma conta vencendo neste mês. Toque em + para adicionar.</div></div>';
+    else { const days=[...new Set(items.map(i=>i.due))];
+      html+=days.map(d=>{ const its=items.filter(i=>i.due===d), lateDay=d<t && its.some(i=>!i.paid);
+        return `<div class="card"><h2 style="justify-content:space-between"><span class="${lateDay?'neg':''}">${d===t?'Hoje · ':''}${dayLabel(d)}</span><span class="muted" style="font-weight:400;font-size:.9rem">${brl(its.reduce((a,i)=>a+i.value,0))}</span></h2>${its.map(contaRowHTML).join('')}</div>`; }).join(''); }
+  } else {
+    const [y,m]=month.split('-').map(Number), first=new Date(y,m-1,1).getDay(), nd=lastDay(month);
+    if(!calSel || calSel.slice(0,7)!==month) calSel = t.slice(0,7)===month ? t : (items[0]?items[0].due:month+'-01');
+    let cells=''; for(let i=0;i<first;i++) cells+='<div></div>';
+    for(let d=1; d<=nd; d++){ const k=month+'-'+pad2(d), its=items.filter(i=>i.due===k);
+      const st = !its.length?'' : its.some(i=>dueStatus(i,t)==='late')?'late' : its.some(i=>!i.paid)?'open':'paid';
+      cells+=`<button class="cday ${k===t?'today':''} ${k===calSel?'sel':''}" data-cal="${k}" aria-label="${dshort(k)}${its.length?', '+its.length+' conta(s)':''}">
+        <span>${d}</span>${its.length?`<i class="cdot ${st}">${its.length>1?its.length:''}</i>`:''}</button>`; }
+    const sel=items.filter(i=>i.due===calSel);
+    html+=`<div class="card"><div class="cal">${WD.map(w=>`<div class="cwd">${w[0]}</div>`).join('')}${cells}</div>
+      <div class="legend" style="margin-top:10px"><span><i style="background:var(--danger)"></i>Vencida</span><span><i style="background:var(--alert)"></i>A pagar</span><span><i style="background:var(--brand)"></i>Paga</span></div></div>
+      <div class="card"><h2 style="justify-content:space-between"><span>${calSel===t?'Hoje · ':''}${dayLabel(calSel)}</span><span class="muted" style="font-weight:400;font-size:.9rem">${brl(sel.reduce((a,i)=>a+i.value,0))}</span></h2>
+        ${sel.length?sel.map(contaRowHTML).join(''):'<div class="empty" style="padding:14px">Nenhuma conta vence neste dia.</div>'}</div>`;
+  }
+  view.innerHTML=html;
 }
 
 function renderCartao(){
@@ -1241,12 +1293,14 @@ function formCartao(name){
 document.getElementById('prev').onclick=()=>{ month=madd(month,-1); render(); };
 document.getElementById('next').onclick=()=>{ month=madd(month,1); render(); };
 document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; render(); window.scrollTo(0,0); });
-document.getElementById('fab').onclick=()=>{ tab==='resumo'?formConta('var'):tab==='cartao'?formCompra():tab==='salarios'?chooseAdd():formConta(fContas.type==='fix'?'fix':'var'); };
+document.getElementById('fab').onclick=()=>{ tab==='resumo'?formConta('var'):tab==='cartao'?formCompra():tab==='salarios'?chooseAdd():fContas.type==='card'?formCompra():formConta(fContas.type==='fix'?'fix':'var'); };
 view.addEventListener('click',e=>{
-  const t=e.target.closest('[data-budget],[data-sav],[data-box],[data-addsav],[data-delbox],[data-pmonth],[data-gomonth],[data-pwho],[data-pcat],[data-rec],[data-income],[data-goto],[data-cardcfg],[data-cpay],[data-pay],[data-edit],[data-type],[data-who],[data-cwho],[data-ccard],[data-call],[data-delcat],[data-delcard]');
+  const t=e.target.closest('[data-cview],[data-cal],[data-budget],[data-sav],[data-box],[data-addsav],[data-delbox],[data-pmonth],[data-gomonth],[data-pwho],[data-pcat],[data-rec],[data-income],[data-goto],[data-cardcfg],[data-cpay],[data-pay],[data-edit],[data-type],[data-who],[data-cwho],[data-ccard],[data-call],[data-delcat],[data-delcard]');
   if(!t) return;
   const d=t.dataset;
   const pm=d.pm||month;
+  if(d.cview){ cView=d.cview; render(); return; }
+  if(d.cal){ calSel=d.cal; render(); return; }
   if(d.budget){ formBudget(d.budget); return; }
   if(d.sav){ formGuardar(db.savings.find(x=>x.id===d.sav)); return; }
   if(d.box){ boxHistory(d.box); return; }
